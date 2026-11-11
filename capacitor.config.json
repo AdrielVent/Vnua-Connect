@@ -1,0 +1,7 @@
+{
+  "appId": "com.vnuaconnect.app",
+  "appName": "Vnua-connect",
+  "webDir": "www",
+  "ios": { "contentInset": "always" },
+  "plugins": { "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] } }
+}
