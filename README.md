@@ -26,13 +26,13 @@ npm i -D @playwright/test && npx playwright install chromium && npx playwright t
 ```
 git init && git add . && git commit -m "Vnua-connect prototype"
 git branch -M main
-git remote add origin https://github.com/AdrielVent/vnua-connect.git
+git remote add origin https://github.com/AdrielVent/Vnua-Connect.git
 git push -u origin main
 ```
 3. In the repo, go to Settings → Pages → Source: "Deploy from a branch", then pick `main` and `/ (root)`.
-4. The site goes live at `https://AdrielVent.github.io/vnua-connect/`. To embed it in your website:
+4. The site goes live at `https://AdrielVent.github.io/Vnua-Connect/`. To embed it in your website:
 ```html
-<iframe src="https://AdrielVent.github.io/vnua-connect/" style="width:100%;height:900px;border:0" title="Vnua-connect"></iframe>
+<iframe src="https://AdrielVent.github.io/Vnua-Connect/" style="width:100%;height:900px;border:0" title="Vnua-connect"></iframe>
 ```
 
 ## Toward a publishable app
@@ -45,6 +45,6 @@ This site is a design prototype, not something ready for app stores. To get ther
 MIT. See `LICENSE`. The bundled QR library (qrcode-generator) is also MIT.
 
 ## Links
-- Repo: https://github.com/AdrielVent/vnua-connect
-- Live demo: https://adrielvent.github.io/vnua-connect/
-- iPhone app mode: https://adrielvent.github.io/vnua-connect/?app=1 (Safari → Share → Add to Home Screen)
+- Repo: https://github.com/AdrielVent/Vnua-Connect
+- Live demo: https://adrielvent.github.io/Vnua-Connect/
+- iPhone app mode: https://adrielvent.github.io/Vnua-Connect/?app=1 (Safari → Share → Add to Home Screen)

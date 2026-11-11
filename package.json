@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "repository": "github:AdrielVent/vnua-connect",
+  "repository": "github:AdrielVent/Vnua-Connect",
   "scripts": {
     "build:web": "rm -rf www && mkdir -p www && cp index.html www/index.html",
     "ios:add": "npx cap add ios",
