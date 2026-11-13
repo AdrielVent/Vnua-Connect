@@ -60,33 +60,44 @@ enum Metrics {
 // SF Pro, Apple's system font. Every style scales with Dynamic Type (relativeTo:).
 
 enum VnuaFont {
-    enum Weight { case regular, medium, bold }
+    enum Weight { case regular, medium, bold, black }
 
     /// Brand fonts found in the bundle, keyed by weight. Filled by FontRegistrar at launch from each file's
     /// real family name and weight, so any Circular file naming works (lineto-circular-book.ttf, CircularStd-Bold.otf…).
+    /// A weight is only filled by a file that's actually close to it, so a lone Black file never ends up as body text.
     nonisolated(unsafe) fileprivate(set) static var resolved: [Weight: String] = [:]
 
-    static var isUsingBrandFont: Bool { resolved[.regular] != nil }
+    static var isUsingBrandFont: Bool { !resolved.isEmpty }
+
+    /// Big display text (screen titles, page headers) uses Circular Black when it's installed.
+    private static let displayStyles: Set<Font.TextStyle> = [.largeTitle, .title, .title2]
+
+    private static func name(for style: Font.TextStyle?, _ weight: Weight) -> String? {
+        if weight == .bold, let style, displayStyles.contains(style), let black = resolved[.black] { return black }
+        return resolved[weight]
+    }
 
     static func font(_ style: Font.TextStyle, _ weight: Weight = .regular) -> Font {
-        if let name = resolved[weight] ?? resolved[.regular] {
+        if let name = name(for: style, weight) {
             return .custom(name, size: baseSize(style), relativeTo: style)
         }
         return .system(style, design: .default, weight: systemWeight(weight))
     }
 
-    /// Fixed-size text that should not scale (monograms, QR captions).
+    /// Fixed-size text that should not scale (monograms).
     static func fixed(size: CGFloat, _ weight: Weight = .regular) -> Font {
-        if let name = resolved[weight] ?? resolved[.regular] { return .custom(name, fixedSize: size) }
+        if let name = resolved[weight] ?? (weight == .bold ? resolved[.black] : nil) { return .custom(name, fixedSize: size) }
         return .system(size: size, weight: systemWeight(weight))
     }
 
     static func uiFont(_ style: UIFont.TextStyle, _ weight: Weight) -> UIFont {
         let base = UIFont.preferredFont(forTextStyle: style)
-        if let name = resolved[weight], let f = UIFont(name: name, size: base.pointSize) {
+        let swiftUIStyle: Font.TextStyle? = style == .largeTitle ? .largeTitle : style == .title1 ? .title : nil
+        if let name = name(for: swiftUIStyle, weight), let f = UIFont(name: name, size: base.pointSize) {
             return UIFontMetrics(forTextStyle: style).scaledFont(for: f)
         }
-        return UIFont.systemFont(ofSize: base.pointSize, weight: weight == .bold ? .bold : weight == .medium ? .semibold : .regular)
+        let w: UIFont.Weight = weight == .black ? .heavy : weight == .bold ? .bold : weight == .medium ? .semibold : .regular
+        return UIFont.systemFont(ofSize: base.pointSize, weight: w)
     }
 
     private static func systemWeight(_ w: Weight) -> Font.Weight {
@@ -94,6 +105,7 @@ enum VnuaFont {
         case .regular: return .regular
         case .medium: return .semibold
         case .bold: return .bold
+        case .black: return .heavy
         }
     }
 
@@ -136,17 +148,24 @@ enum FontRegistrar {
             }
         }
         guard !found.isEmpty else { return }
-        // Target weights on Core Text's −1…1 scale: Book ≈ 0, Medium ≈ 0.23, Bold ≈ 0.4.
-        func closest(_ target: CGFloat) -> String {
-            found.min { abs($0.weight - target) < abs($1.weight - target) }!.name
+        // Target weights on Core Text's −1…1 scale: Book ≈ 0, Medium ≈ 0.23, Bold ≈ 0.4, Black ≈ 0.8.
+        // Only accept a file within 0.15 of the target; otherwise that weight stays SF Pro.
+        let targets: [(VnuaFont.Weight, CGFloat)] = [(.regular, 0), (.medium, 0.23), (.bold, 0.4), (.black, 0.8)]
+        var out: [VnuaFont.Weight: String] = [:]
+        for (weight, target) in targets {
+            if let best = found.min(by: { abs($0.weight - target) < abs($1.weight - target) }),
+               abs(best.weight - target) <= 0.15 {
+                out[weight] = best.name
+            }
         }
-        VnuaFont.resolved = [.regular: closest(0), .medium: closest(0.23), .bold: closest(0.4)]
+        VnuaFont.resolved = out
     }
 
     /// Which Circular files ended up in use, for the Profile screen.
     static var summary: String {
         VnuaFont.resolved.isEmpty ? "SF Pro (Circular not installed)"
             : Set(VnuaFont.resolved.values).sorted().joined(separator: ", ")
+              + (VnuaFont.resolved[.regular] == nil ? " + SF Pro for text" : "")
     }
 
     /// Navigation bar titles use the brand font too.

@@ -8,7 +8,11 @@ struct VnuaConnectApp: App {
         FontRegistrar.registerBundledFonts()
         FontRegistrar.applyAppearance()
         // Real backend when VnuaConnect/Config/Supabase.plist exists; otherwise the offline demo.
-        let api: any VnuaAPI = SupabaseConfig.load().map { SupabaseAPI(config: $0) } ?? MockAPI()
+        var api: any VnuaAPI = SupabaseConfig.load().map { SupabaseAPI(config: $0) } ?? MockAPI()
+        #if DEBUG
+        // `-mock` (Scheme → Arguments) forces the offline demo even when Supabase is configured.
+        if ProcessInfo.processInfo.arguments.contains("-mock") { api = MockAPI() }
+        #endif
         _app = State(initialValue: AppState(api: api))
     }
 
