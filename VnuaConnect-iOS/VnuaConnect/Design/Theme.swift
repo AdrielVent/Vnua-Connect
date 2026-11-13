@@ -62,20 +62,9 @@ enum Metrics {
 enum VnuaFont {
     enum Weight { case regular, medium, bold }
 
-    /// PostScript names Lineto ships for Circular XX and Circular Std. First match wins.
-    private static let candidates: [Weight: [String]] = [
-        .regular: ["CircularXX-Regular", "CircularXX-Book", "CircularStd-Book", "Circular-Book"],
-        .medium:  ["CircularXX-Medium", "CircularStd-Medium", "Circular-Medium"],
-        .bold:    ["CircularXX-Bold", "CircularStd-Bold", "Circular-Bold"],
-    ]
-
-    private static let resolved: [Weight: String] = {
-        var out: [Weight: String] = [:]
-        for (w, names) in candidates {
-            if let n = names.first(where: { UIFont(name: $0, size: 12) != nil }) { out[w] = n }
-        }
-        return out
-    }()
+    /// Brand fonts found in the bundle, keyed by weight. Filled by FontRegistrar at launch from each file's
+    /// real family name and weight, so any Circular file naming works (lineto-circular-book.ttf, CircularStd-Bold.otf…).
+    nonisolated(unsafe) fileprivate(set) static var resolved: [Weight: String] = [:]
 
     static var isUsingBrandFont: Bool { resolved[.regular] != nil }
 
@@ -128,12 +117,36 @@ enum VnuaFont {
 }
 
 enum FontRegistrar {
-    /// Registers every bundled .otf/.ttf so UIFont(name:) can find it. No Info.plist edits needed.
+    /// Registers every bundled .otf/.ttf and picks the closest Circular file for each weight we use.
     static func registerBundledFonts() {
         let urls = ["otf", "ttf"].flatMap { Bundle.main.urls(forResourcesWithExtension: $0, subdirectory: nil) ?? [] }
+        var found: [(name: String, weight: CGFloat)] = []
         for url in urls {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            let descriptors = (CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor]) ?? []
+            for d in descriptors {
+                let family = (CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute) as? String) ?? ""
+                guard family.localizedCaseInsensitiveContains("circular"),
+                      let name = CTFontDescriptorCopyAttribute(d, kCTFontNameAttribute) as? String,
+                      !name.localizedCaseInsensitiveContains("italic") else { continue }
+                let font = CTFontCreateWithName(name as CFString, 12, nil)
+                let traits = CTFontCopyTraits(font) as NSDictionary
+                let w = (traits[kCTFontWeightTrait] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+                found.append((name, w))
+            }
         }
+        guard !found.isEmpty else { return }
+        // Target weights on Core Text's −1…1 scale: Book ≈ 0, Medium ≈ 0.23, Bold ≈ 0.4.
+        func closest(_ target: CGFloat) -> String {
+            found.min { abs($0.weight - target) < abs($1.weight - target) }!.name
+        }
+        VnuaFont.resolved = [.regular: closest(0), .medium: closest(0.23), .bold: closest(0.4)]
+    }
+
+    /// Which Circular files ended up in use, for the Profile screen.
+    static var summary: String {
+        VnuaFont.resolved.isEmpty ? "SF Pro (Circular not installed)"
+            : Set(VnuaFont.resolved.values).sorted().joined(separator: ", ")
     }
 
     /// Navigation bar titles use the brand font too.

@@ -98,6 +98,7 @@ struct ClubRow: View {
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     Badge(text: club.interest)
+                    if !club.isPublished { Badge(text: "In review", systemImage: "hourglass", tone: .warning) }
                     if let m = app.membership(club.id) {
                         Badge(text: m.status == .pending ? "Requested" : m.role.label,
                               systemImage: m.status == .pending ? "clock" : "checkmark",

@@ -50,7 +50,7 @@ struct ProfileView: View {
                 Section("Help") {
                     Link("Contact support", destination: URL(string: "mailto:support@vnuaconnect.example")!)
                     Link("Privacy policy", destination: URL(string: "https://adrielvent.github.io/Vnua-Connect/")!)
-                    LabeledContent("Font", value: VnuaFont.isUsingBrandFont ? "Circular" : "SF Pro (Circular not installed)")
+                    LabeledContent("Font", value: FontRegistrar.summary)
                 }
 
                 Section {

@@ -101,6 +101,8 @@ struct EventDetailView: View {
     @Environment(AppState.self) private var app
     let event: ClubEvent
     @State private var showReport = false
+    @State private var confirmCancel = false
+    @Environment(\.dismiss) private var dismiss
 
     private var going: Bool { app.rsvps.contains(event.id) }
 
@@ -168,6 +170,11 @@ struct EventDetailView: View {
                             Label("Run check-in", systemImage: "qrcode.viewfinder")
                         }
                         .buttonStyle(.vnuaPrimary)
+                        if event.status != .cancelled {
+                            Button("Cancel event", role: .destructive) { confirmCancel = true }
+                                .font(VnuaFont.font(.subheadline, .medium))
+                                .frame(maxWidth: .infinity, minHeight: Metrics.minTap)
+                        }
                     }
                 }
             }
@@ -182,6 +189,20 @@ struct EventDetailView: View {
             } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("More") }
         }
         .sheet(isPresented: $showReport) { ReportSheet(targetType: "event", targetId: event.id, targetName: event.title) }
+        .confirmationDialog("Cancel \(event.title)?", isPresented: $confirmCancel, titleVisibility: .visible) {
+            Button("Cancel event", role: .destructive) {
+                Task {
+                    if await app.run({ try await app.api.cancelEvent(eventId: event.id) }) != nil {
+                        await app.refresh()
+                        app.show("Event cancelled")
+                        dismiss()
+                    }
+                }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("Members will see it as cancelled. RSVPs and check-ins are kept.")
+        }
     }
 
     private func addToCalendar() async {

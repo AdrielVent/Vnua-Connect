@@ -42,7 +42,7 @@ struct SignInView: View {
                         field("Code from your email", text: $code, field: .code)
                             .textContentType(.oneTimeCode)
                             .keyboardType(.numberPad)
-                        Text(app.isDemo ? "Demo mode: any 6 digits work." : "We sent a code to \(email). It can take a minute; check spam too.")
+                        Text(app.isDemo ? "Demo mode: any 6 digits work." : "Check \(email) on this iPhone. Tap the link in the email, or type the code if it shows one. It can take a minute, and check spam too.")
                             .font(VnuaFont.font(.footnote))
                             .foregroundStyle(Palette.secondaryText)
                     }

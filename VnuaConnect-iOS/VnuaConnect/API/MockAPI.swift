@@ -64,6 +64,8 @@ actor MockAPI: VnuaAPI {
 
     func signOut() async { user = nil }
 
+    func handleAuthURL(_ url: URL) async throws -> UserProfile? { nil }
+
     func requestCode(email: String, name: String, campus: Campus) async throws {
         try await gate()
         guard email.contains("@"), campus.allows(email: email) else {
@@ -161,6 +163,22 @@ actor MockAPI: VnuaAPI {
         memberships[clubId] = nil
     }
 
+    func createClub(_ d: ClubDraft) async throws -> String {
+        try await gate()
+        let me = try requireUser()
+        guard d.name.trimmingCharacters(in: .whitespaces).count >= 2 else { throw APIError.validation("Give the club a name.") }
+        guard !clubList.contains(where: { $0.name.caseInsensitiveCompare(d.name) == .orderedSame }) else {
+            throw APIError.validation("A club with that name already exists.")
+        }
+        let id = "club_" + UUID().uuidString.prefix(6).lowercased()
+        clubList.append(Club(id: id, campusId: me.campusId, monogram: d.monogram, accentHex: d.accentHex, name: d.name,
+                             interest: d.interest, blurb: d.blurb, about: d.about, recognition: .notStated, funded: nil,
+                             affiliation: nil, requiresApproval: d.requiresApproval,
+                             officers: [Officer(name: me.name, title: "Founder", askAbout: "Anything")], isPublished: false))
+        memberships[id] = Membership(clubId: id, role: .officer, status: .active, contact: .organizing)
+        return id
+    }
+
     func joinRequests(clubId: String) async throws -> [JoinRequest] {
         try await gate()
         guard memberships[clubId]?.role == .officer else { throw APIError.forbidden }
@@ -193,6 +211,28 @@ actor MockAPI: VnuaAPI {
         let expires = Date.now.addingTimeInterval(45)
         passes[token] = (eventId, me.name, expires)
         return EventPass(token: token, eventId: eventId, expiresAt: expires)
+    }
+
+    func createEvent(_ d: EventDraft, requestId: String) async throws -> String {
+        try await idempotent(requestId) {
+            let me = try requireUser()
+            guard !d.hostClubIds.isEmpty, d.hostClubIds.allSatisfy({ memberships[$0]?.role == .officer }) else {
+                throw APIError.forbidden
+            }
+            guard d.title.trimmingCharacters(in: .whitespaces).count >= 2 else { throw APIError.validation("Give the event a title.") }
+            guard d.start > .now.addingTimeInterval(-3600) else { throw APIError.validation("Pick a start time in the future.") }
+            let id = "ev_" + UUID().uuidString.prefix(6).lowercased()
+            eventList.append(ClubEvent(id: id, campusId: me.campusId, hostClubIds: d.hostClubIds, title: d.title,
+                                       start: d.start, durationMinutes: d.durationMinutes, location: d.location,
+                                       details: d.details, organizer: me.name, status: .scheduled))
+            return id
+        }
+    }
+
+    func cancelEvent(eventId: String) async throws {
+        try await gate()
+        guard isOfficer(ofHostsOf: eventId) else { throw APIError.forbidden }
+        if let i = eventList.firstIndex(where: { $0.id == eventId }) { eventList[i].status = .cancelled }
     }
 
     // MARK: officer tools

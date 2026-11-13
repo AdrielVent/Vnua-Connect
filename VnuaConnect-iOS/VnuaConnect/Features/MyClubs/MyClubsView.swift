@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyClubsView: View {
     @Environment(AppState.self) private var app
+    @State private var startingClub = false
 
     private func clubs(where match: (Membership) -> Bool) -> [Club] {
         app.visibleClubs.filter { app.membership($0.id).map(match) ?? false }
@@ -16,9 +17,14 @@ struct MyClubsView: View {
                     let pending = clubs { $0.status == .pending }
 
                     if leading.isEmpty && member.isEmpty && pending.isEmpty {
-                        ContentUnavailableView("No clubs yet", systemImage: "person.3",
-                                               description: Text("Find a club in Discover and join, or help found one."))
-                            .padding(.top, 60)
+                        ContentUnavailableView {
+                            Label("No clubs yet", systemImage: "person.3")
+                        } description: {
+                            Text("Find a club in Discover and join, or help found one.")
+                        } actions: {
+                            Button("Start a club") { startingClub = true }.buttonStyle(.vnuaPrimary).frame(maxWidth: 240)
+                        }
+                        .padding(.top, 60)
                     }
                     group("Clubs you lead", leading)
                     group("Member", member)
@@ -29,6 +35,10 @@ struct MyClubsView: View {
             }
             .background(Palette.background)
             .navigationTitle("My Clubs")
+            .toolbar {
+                Button { startingClub = true } label: { Label("Start a club", systemImage: "plus") }
+            }
+            .sheet(isPresented: $startingClub) { StartClubSheet() }
             .refreshable { await app.refresh() }
             .vnuaDestinations()
         }

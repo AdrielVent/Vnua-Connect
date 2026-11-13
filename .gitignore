@@ -13,3 +13,7 @@ DerivedData/
 VnuaConnect-iOS/VnuaConnect/Config/Supabase.plist
 supabase/.temp/
 supabase/.branches/
+
+# Font files: licensed per-person/per-app; never redistribute them in a public repo
+VnuaConnect-iOS/VnuaConnect/Resources/Fonts/*.ttf
+VnuaConnect-iOS/VnuaConnect/Resources/Fonts/*.otf

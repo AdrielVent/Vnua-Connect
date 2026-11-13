@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged with the Info.plist Xcode generates from build settings. Only keys that can't be build settings live here. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.vnuaconnect.app.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vnuaconnect</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

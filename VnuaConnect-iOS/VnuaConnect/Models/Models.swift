@@ -50,6 +50,8 @@ struct Club: Identifiable, Hashable, Codable, Sendable {
     /// GIHU-style: officers approve join requests. When false, joining is instant.
     var requiresApproval: Bool
     var officers: [Officer]
+    /// New clubs are hidden from other students until a moderator publishes them.
+    var isPublished: Bool = true
 }
 
 struct Officer: Hashable, Codable, Sendable {
@@ -106,6 +108,35 @@ struct ClubEvent: Identifiable, Hashable, Codable, Sendable {
     var previousStart: Date?
 
     var end: Date { start.addingTimeInterval(TimeInterval(durationMinutes * 60)) }
+}
+
+struct ClubDraft: Sendable {
+    var name = ""
+    var interest = "Academic"
+    var blurb = ""
+    var about = ""
+    var accentHex = "#1f5a6b"
+    var requiresApproval = false
+
+    var monogram: String {
+        let words = name.split(separator: " ").filter { !["&", "and", "the", "of"].contains($0.lowercased()) }
+        let letters = words.prefix(2).compactMap(\.first).map(String.init).joined()
+        return letters.isEmpty ? "?" : letters.uppercased()
+    }
+
+    static let interests = ["Academic", "Creative", "Cultural", "Engineering", "Games", "Media", "Performing arts",
+                            "Professional", "Service", "Sports", "Wellness"]
+    static let accents: [(String, String)] = [("#1f5a6b", "Harbor"), ("#8a3b2e", "Brick"), ("#2c455d", "Steel"),
+                                              ("#2f5d3a", "Pine"), ("#4a3a6b", "Plum"), ("#7a4f12", "Clay")]
+}
+
+struct EventDraft: Sendable {
+    var hostClubIds: [String]
+    var title = ""
+    var start = Calendar.current.date(byAdding: .day, value: 1, to: .now)!
+    var durationMinutes = 60
+    var location = ""
+    var details = ""
 }
 
 struct EventPass: Hashable, Sendable {

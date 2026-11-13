@@ -8,6 +8,7 @@ struct ClubDetailView: View {
     @State private var showReport = false
     @State private var confirmLeave = false
     @State private var confirmBlock = false
+    @State private var newEvent = false
 
     private var membership: Membership? { app.membership(club.id) }
 
@@ -16,7 +17,16 @@ struct ClubDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 membershipCard
-                if app.isOfficer(of: club.id) { JoinRequestsCard(club: club) }
+                if !club.isPublished {
+                    Label("Only you and your members can see this club until a moderator reviews it.", systemImage: "hourglass")
+                        .font(VnuaFont.font(.subheadline)).foregroundStyle(Palette.warning)
+                        .card()
+                }
+                if app.isOfficer(of: club.id) {
+                    Button { newEvent = true } label: { Label("New event", systemImage: "calendar.badge.plus") }
+                        .buttonStyle(.vnuaPrimary)
+                    JoinRequestsCard(club: club)
+                }
                 aboutCard
                 if !club.officers.isEmpty { officersCard }
                 eventsSection
@@ -37,6 +47,7 @@ struct ClubDetailView: View {
             }
         }
         .sheet(isPresented: $showJoin) { JoinSheet(club: club) }
+        .sheet(isPresented: $newEvent) { NewEventSheet(club: club) }
         .sheet(isPresented: $showReport) { ReportSheet(targetType: "club", targetId: club.id, targetName: club.name) }
         .confirmationDialog("Leave \(club.name)?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave club", role: .destructive) { Task { await app.leave(club) } }

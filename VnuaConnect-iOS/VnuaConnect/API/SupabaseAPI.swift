@@ -21,6 +21,9 @@ struct SupabaseConfig {
 final class SupabaseAPI: VnuaAPI {
     private let client: SupabaseClient
 
+    /// Must match CFBundleURLTypes in Info.plist and auth.additional_redirect_urls in supabase/config.toml.
+    static let authCallback = URL(string: "vnuaconnect://login-callback")!
+
     init(config: SupabaseConfig) {
         client = SupabaseClient(supabaseURL: config.url, supabaseKey: config.anonKey,
                                 options: SupabaseClientOptions(auth: .init(emitLocalSessionAsInitialSession: true)))
@@ -37,7 +40,7 @@ final class SupabaseAPI: VnuaAPI {
         // Check the domain here for a friendly message; the database trigger enforces it for real.
         guard campus.allows(email: email) else { throw APIError.validation("Use your \(campus.name) email address.") }
         try await call {
-            try await client.auth.signInWithOTP(email: email.lowercased(), shouldCreateUser: true,
+            try await client.auth.signInWithOTP(email: email.lowercased(), redirectTo: Self.authCallback, shouldCreateUser: true,
                                                 data: ["name": .string(name.trimmingCharacters(in: .whitespaces))])
         }
     }
@@ -46,6 +49,14 @@ final class SupabaseAPI: VnuaAPI {
         try await call {
             let res = try await client.auth.verifyOTP(email: email.lowercased(), token: code, type: .email)
             return try await profile(res.user.id)
+        }
+    }
+
+    func handleAuthURL(_ url: URL) async throws -> UserProfile? {
+        guard url.scheme == Self.authCallback.scheme, url.host == Self.authCallback.host else { return nil }
+        return try await call {
+            let session = try await client.auth.session(from: url)
+            return try await profile(session.user.id)
         }
     }
 
@@ -148,6 +159,17 @@ final class SupabaseAPI: VnuaAPI {
         try await call { try await client.rpc("leave_club", params: ["p_club": clubId]).execute() }
     }
 
+    func createClub(_ d: ClubDraft) async throws -> String {
+        try await call {
+            let id: UUID = try await client.rpc("create_club", params: [
+                "p_name": AnyJSON.string(d.name), "p_interest": .string(d.interest), "p_blurb": .string(d.blurb),
+                "p_about": .string(d.about), "p_monogram": .string(d.monogram), "p_accent": .string(d.accentHex),
+                "p_requires_approval": .bool(d.requiresApproval),
+            ]).execute().value
+            return id.lower
+        }
+    }
+
     func joinRequests(clubId: String) async throws -> [JoinRequest] {
         try await call {
             let rows: [JoinRequestRow] = try await client.rpc("join_requests", params: ["p_club": clubId]).execute().value
@@ -178,6 +200,21 @@ final class SupabaseAPI: VnuaAPI {
             let row: PassRow = try await client.rpc("issue_pass", params: ["p_event": eventId]).execute().value
             return EventPass(token: row.token, eventId: row.event_id.lower, expiresAt: row.expires_at)
         }
+    }
+
+    func createEvent(_ d: EventDraft, requestId: String) async throws -> String {
+        try await call {
+            let id: UUID = try await client.rpc("create_event", params: [
+                "p_hosts": AnyJSON.array(d.hostClubIds.map { .string($0) }), "p_title": .string(d.title),
+                "p_starts_at": .string(d.start.ISO8601Format()), "p_duration": .integer(d.durationMinutes),
+                "p_location": .string(d.location), "p_details": .string(d.details), "p_request": .string(requestId),
+            ]).execute().value
+            return id.lower
+        }
+    }
+
+    func cancelEvent(eventId: String) async throws {
+        try await call { try await client.rpc("cancel_event", params: ["p_event": eventId]).execute() }
     }
 
     // MARK: - Officer tools
@@ -287,13 +324,15 @@ private struct CheckInRow: Decodable { let status: String; let record: Attendanc
 private struct DBClub: Decodable {
     let id: UUID, campus_id: String, monogram: String, accent_hex: String, name: String, interest: String
     let blurb: String, about: String, recognition: String, funded: Bool?, affiliation: String?, requires_approval: Bool
+    let is_published: Bool
 
     func model(officers: [OfficerRow]) -> Club {
         Club(id: id.lower, campusId: campus_id, monogram: monogram, accentHex: accent_hex, name: name, interest: interest,
              blurb: blurb, about: about,
              recognition: recognition == "recognized" ? .recognized : recognition == "not_recognized" ? .notRecognized : .notStated,
              funded: funded, affiliation: affiliation, requiresApproval: requires_approval,
-             officers: officers.map { Officer(name: $0.name, title: $0.title, askAbout: $0.ask_about) })
+             officers: officers.map { Officer(name: $0.name, title: $0.title, askAbout: $0.ask_about) },
+             isPublished: is_published)
     }
 }
 

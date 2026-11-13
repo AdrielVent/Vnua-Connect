@@ -13,6 +13,8 @@ protocol VnuaAPI: Sendable {
     func restoreSession() async -> UserProfile?
     func requestCode(email: String, name: String, campus: Campus) async throws
     func verify(email: String, name: String, code: String, campus: Campus) async throws -> UserProfile
+    /// Handles the sign-in link from the email (vnuaconnect://login-callback). Returns nil if the URL isn't ours.
+    func handleAuthURL(_ url: URL) async throws -> UserProfile?
     func signOut() async
     func deleteAccount() async throws
 
@@ -33,10 +35,14 @@ protocol VnuaAPI: Sendable {
     func leave(clubId: String) async throws
     func joinRequests(clubId: String) async throws -> [JoinRequest]
     func reviewJoinRequest(clubId: String, userId: String, approve: Bool) async throws
+    /// Found a new club. The caller becomes its officer; it's hidden from others until a moderator publishes it.
+    func createClub(_ draft: ClubDraft) async throws -> String
 
     // Events
     func setRSVP(eventId: String, going: Bool, requestId: String) async throws -> Bool
     func issuePass(eventId: String) async throws -> EventPass
+    func createEvent(_ draft: EventDraft, requestId: String) async throws -> String
+    func cancelEvent(eventId: String) async throws
 
     // Officer tools
     func searchAttendees(eventId: String, query: String) async throws -> [MemberSummary]

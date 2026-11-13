@@ -235,6 +235,36 @@ end $$;
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
 do $$ begin assert not exists (select 1 from public.clubs where name = 'Chess Night'), 'new club must wait for moderation'; end $$;
 
+-- ───────── 10b. Officers create and cancel events ─────────
+select tests.as_user('00000000-0000-0000-0000-00000000000b');   -- regular member of drama
+select tests.fails($$select public.create_event(array['10000000-0000-0000-0000-000000000001']::uuid[], 'Sneaky', now() + interval '1 day', 60, '', '', gen_random_uuid())$$, 'forbidden|');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');   -- officer of pottery (and drama since section 8)
+reset role;
+delete from public.memberships where club_id = '10000000-0000-0000-0000-000000000001' and user_id = '00000000-0000-0000-0000-00000000000c';
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
+-- can't make a joint event with a club you don't run
+select tests.fails($$select public.create_event(array['10000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001']::uuid[], 'Joint', now() + interval '1 day', 60, '', '', gen_random_uuid())$$, 'forbidden|');
+select tests.fails($$select public.create_event(array['10000000-0000-0000-0000-000000000002']::uuid[], 'Past', now() - interval '2 days', 60, '', '', gen_random_uuid())$$, 'validation|');
+create temp table t_ev as select public.create_event(array['10000000-0000-0000-0000-000000000002']::uuid[], 'Glaze night', now() + interval '5 days', 90, 'Art room', 'Bring an apron', '50000000-0000-0000-0000-000000000001') as id;
+grant select on t_ev to authenticated;
+do $$ begin
+  -- retry with the same request id returns the same event, no duplicate
+  assert public.create_event(array['10000000-0000-0000-0000-000000000002']::uuid[], 'Glaze night', now() + interval '5 days', 90, 'Art room', 'Bring an apron', '50000000-0000-0000-0000-000000000001') = (select id from t_ev);
+  assert (select count(*) from public.events where title = 'Glaze night') = 1;
+  assert (select organizer from public.events where id = (select id from t_ev)) = 'Cy T.';
+end $$;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');   -- drama officer can't cancel pottery's event
+select tests.fails($$select public.cancel_event((select id from t_ev))$$, 'forbidden|');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
+select public.cancel_event((select id from t_ev));
+do $$ begin assert (select status from public.events where id = (select id from t_ev)) = 'cancelled'; end $$;
+reset role;
+set role anon;
+select tests.fails($$select public.cancel_event(gen_random_uuid())$$, 'permission denied');
+reset role;
+set role authenticated;
+
 -- ───────── 11. Account deletion ─────────
 select tests.as_user('00000000-0000-0000-0000-00000000000b');
 select public.delete_account();

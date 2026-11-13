@@ -75,6 +75,11 @@ final class AppState {
         if let profile = await api.restoreSession() { await signedIn(profile) }
     }
 
+    /// The email's sign-in link opens the app with vnuaconnect://login-callback?…
+    func handleOpenURL(_ url: URL) async {
+        if let profile = await run({ try await api.handleAuthURL(url) }) ?? nil { await signedIn(profile) }
+    }
+
     func signedIn(_ profile: UserProfile) async {
         user = profile
         await refresh()

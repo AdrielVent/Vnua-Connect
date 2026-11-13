@@ -122,4 +122,31 @@ final class MockAPITests: XCTestCase {
         // Exact text the live sign-up trigger returns for a non-campus email:
         XCTAssertEqual(SupabaseAPI.map("validation|Use your school email address."), .validation("Use your school email address."))
     }
+
+    func testFoundingAClubMakesYouItsOfficerAndStartsHidden() async throws {
+        let api = try await signedIn()
+        var d = ClubDraft(); d.name = "Chess Night"; d.blurb = "Casual chess"
+        XCTAssertEqual(d.monogram, "CN")
+        let id = try await api.createClub(d)
+        let clubs = try await api.clubs(campusId: "hofstra")
+        XCTAssertEqual(clubs.first { $0.id == id }?.isPublished, false)
+        let ms = try await api.memberships()
+        XCTAssertEqual(ms.first { $0.clubId == id }?.role, .officer)
+        do { _ = try await api.createClub(d); XCTFail("duplicate name") }
+        catch { XCTAssertEqual(error as? APIError, .validation("A club with that name already exists.")) }
+    }
+
+    func testOnlyOfficersOfEveryHostCanCreateEvents() async throws {
+        let api = try await signedIn()        // officer of drama, member of rocket
+        var d = EventDraft(hostClubIds: ["drama", "rocket"]); d.title = "Joint thing"
+        do { _ = try await api.createEvent(d, requestId: "x"); XCTFail() }
+        catch { XCTAssertEqual(error as? APIError, .forbidden) }
+        d.hostClubIds = ["drama"]
+        let a = try await api.createEvent(d, requestId: "same")
+        let b = try await api.createEvent(d, requestId: "same")
+        XCTAssertEqual(a, b, "retry must not create a second event")
+        try await api.cancelEvent(eventId: a)
+        let events = try await api.events(campusId: "hofstra")
+        XCTAssertEqual(events.first { $0.id == a }?.status, .cancelled)
+    }
 }

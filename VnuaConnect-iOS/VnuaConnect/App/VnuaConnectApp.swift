@@ -16,6 +16,7 @@ struct VnuaConnectApp: App {
         WindowGroup {
             RootView()
                 .environment(app)
+                .onOpenURL { url in Task { await app.handleOpenURL(url) } }
                 .tint(Palette.accent)
         }
     }
