@@ -181,7 +181,7 @@ struct EventDetailView: View {
                 Button("Report event", systemImage: "flag") { showReport = true }
             } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("More") }
         }
-        .sheet(isPresented: $showReport) { ReportSheet(targetId: event.id, targetName: event.title) }
+        .sheet(isPresented: $showReport) { ReportSheet(targetType: "event", targetId: event.id, targetName: event.title) }
     }
 
     private func addToCalendar() async {

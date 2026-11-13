@@ -8,3 +8,8 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 .DS_Store
+
+# Supabase app config (project URL + anon key)
+VnuaConnect-iOS/VnuaConnect/Config/Supabase.plist
+supabase/.temp/
+supabase/.branches/

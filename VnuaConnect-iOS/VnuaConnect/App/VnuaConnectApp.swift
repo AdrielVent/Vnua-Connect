@@ -7,8 +7,9 @@ struct VnuaConnectApp: App {
     init() {
         FontRegistrar.registerBundledFonts()
         FontRegistrar.applyAppearance()
-        // Swap MockAPI() for SupabaseAPI(...) once the backend exists. Nothing else changes.
-        _app = State(initialValue: AppState(api: MockAPI()))
+        // Real backend when VnuaConnect/Config/Supabase.plist exists; otherwise the offline demo.
+        let api: any VnuaAPI = SupabaseConfig.load().map { SupabaseAPI(config: $0) } ?? MockAPI()
+        _app = State(initialValue: AppState(api: api))
     }
 
     var body: some Scene {
@@ -25,7 +26,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if app.user == nil {
+            if app.isRestoring {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.background)
+            } else if app.user == nil {
                 SignInView()
             } else {
                 MainTabView()
@@ -40,16 +43,17 @@ struct RootView: View {
         }
         .animation(.snappy, value: app.banner)
         .animation(.default, value: app.user == nil)
-        #if DEBUG
-        // Launch with `-demoSignIn` (Scheme → Arguments) to skip sign-in during development.
         .task {
-            guard ProcessInfo.processInfo.arguments.contains("-demoSignIn"), app.user == nil else { return }
+            await app.restore()
+            #if DEBUG
+            // Launch with `-demoSignIn` (Scheme → Arguments) to skip sign-in in the offline demo.
+            guard ProcessInfo.processInfo.arguments.contains("-demoSignIn"), app.isDemo, app.user == nil else { return }
             if let u = try? await app.api.verify(email: "alex@pride.hofstra.edu", name: "Alex Rivera",
                                                  code: "123456", campus: app.campus) {
                 await app.signedIn(u)
             }
+            #endif
         }
-        #endif
     }
 }
 

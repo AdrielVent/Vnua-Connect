@@ -39,10 +39,10 @@ struct SignInView: View {
                         .disabled(codeSent)
 
                     if codeSent {
-                        field("6-digit code", text: $code, field: .code)
+                        field("Code from your email", text: $code, field: .code)
                             .textContentType(.oneTimeCode)
                             .keyboardType(.numberPad)
-                        Text("We sent a code to \(email). Demo build: any 6 digits work.")
+                        Text(app.isDemo ? "Demo mode: any 6 digits work." : "We sent a code to \(email). It can take a minute; check spam too.")
                             .font(VnuaFont.font(.footnote))
                             .foregroundStyle(Palette.secondaryText)
                     }
@@ -62,7 +62,7 @@ struct SignInView: View {
                     }
                 }
 
-                Text("Prototype: all clubs and events are fictional. Not affiliated with or endorsed by \(app.campus.name).")
+                Text(app.isDemo ? "Demo mode: all clubs and events are fictional. Not affiliated with or endorsed by \(app.campus.name)." : "Vnua-connect is student-run and not affiliated with or endorsed by \(app.campus.name).")
                     .font(VnuaFont.font(.caption))
                     .foregroundStyle(Palette.secondaryText)
             }
@@ -81,7 +81,7 @@ struct SignInView: View {
     }
 
     private var canSubmit: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && email.contains("@") && (!codeSent || code.count == 6)
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && email.contains("@") && (!codeSent || (6...8).contains(code.count))
     }
 
     private func field(_ title: String, text: Binding<String>, field: Field) -> some View {
@@ -104,7 +104,7 @@ struct SignInView: View {
         Task {
             defer { busy = false }
             if !codeSent {
-                if await app.run({ try await app.api.requestCode(email: email, campus: app.campus) }) != nil {
+                if await app.run({ try await app.api.requestCode(email: email, name: name, campus: app.campus) }) != nil {
                     codeSent = true
                     focus = .code
                 }

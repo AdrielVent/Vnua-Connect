@@ -16,6 +16,7 @@ struct ClubDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 membershipCard
+                if app.isOfficer(of: club.id) { JoinRequestsCard(club: club) }
                 aboutCard
                 if !club.officers.isEmpty { officersCard }
                 eventsSection
@@ -36,12 +37,12 @@ struct ClubDetailView: View {
             }
         }
         .sheet(isPresented: $showJoin) { JoinSheet(club: club) }
-        .sheet(isPresented: $showReport) { ReportSheet(targetId: club.id, targetName: club.name) }
+        .sheet(isPresented: $showReport) { ReportSheet(targetType: "club", targetId: club.id, targetName: club.name) }
         .confirmationDialog("Leave \(club.name)?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave club", role: .destructive) { Task { await app.leave(club) } }
         }
         .confirmationDialog("Block \(club.name)?", isPresented: $confirmBlock, titleVisibility: .visible) {
-            Button("Block", role: .destructive) { app.block(club); dismiss() }
+            Button("Block", role: .destructive) { Task { await app.setBlocked(club, true); dismiss() } }
         } message: {
             Text("You won't see this club or its events. You can undo this in Profile.")
         }
@@ -192,6 +193,7 @@ struct JoinSheet: View {
 struct ReportSheet: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
+    let targetType: String
     let targetId: String
     let targetName: String
     @State private var reason: ReportReason?
@@ -219,7 +221,7 @@ struct ReportSheet: View {
                     Button("Send") {
                         guard let reason else { return }
                         Task {
-                            if await app.run({ try await app.api.report(targetId: targetId, reason: reason, detail: detail) }) != nil {
+                            if await app.run({ try await app.api.report(targetType: targetType, targetId: targetId, reason: reason, detail: detail) }) != nil {
                                 app.show("Report sent. A moderator will review it.")
                                 dismiss()
                             }
@@ -227,6 +229,51 @@ struct ReportSheet: View {
                     }
                     .disabled(reason == nil)
                 }
+            }
+        }
+    }
+}
+
+/// Officers approve or decline pending join requests (GIHU-style roster control).
+struct JoinRequestsCard: View {
+    @Environment(AppState.self) private var app
+    let club: Club
+    @State private var requests: [JoinRequest] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Join requests · \(requests.count)")
+            if requests.isEmpty {
+                Text("No one is waiting.").font(VnuaFont.font(.subheadline)).foregroundStyle(Palette.secondaryText)
+            }
+            ForEach(requests) { r in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.name).font(VnuaFont.font(.body, .medium))
+                        Text("\(r.role.label) · \(r.requestedAt.formatted(.relative(presentation: .named)))")
+                            .font(VnuaFont.font(.footnote)).foregroundStyle(Palette.secondaryText)
+                    }
+                    Spacer()
+                    Button { review(r, false) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.bordered).accessibilityLabel("Decline \(r.name)")
+                    Button { review(r, true) } label: { Image(systemName: "checkmark") }
+                        .buttonStyle(.borderedProminent).accessibilityLabel("Approve \(r.name)")
+                }
+            }
+        }
+        .card()
+        .task { await load() }
+    }
+
+    private func load() async {
+        if let r = await app.run({ try await app.api.joinRequests(clubId: club.id) }) { requests = r }
+    }
+
+    private func review(_ r: JoinRequest, _ approve: Bool) {
+        Task {
+            if await app.run({ try await app.api.reviewJoinRequest(clubId: club.id, userId: r.userId, approve: approve) }) != nil {
+                requests.removeAll { $0.userId == r.userId }
+                app.show(approve ? "\(r.name) is now a member" : "Request declined")
             }
         }
     }

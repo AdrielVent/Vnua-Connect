@@ -41,7 +41,7 @@ struct ProfileView: View {
                             HStack {
                                 Text(c.name)
                                 Spacer()
-                                Button("Unblock") { app.blockedClubIds.remove(c.id) }
+                                Button("Unblock") { Task { await app.setBlocked(c, false) } }
                             }
                         }
                     }
@@ -54,7 +54,7 @@ struct ProfileView: View {
                 }
 
                 Section {
-                    Button("Sign out") { app.signOut() }
+                    Button("Sign out") { Task { await app.signOut() } }
                     Button("Delete account", role: .destructive) { confirmDelete = true }
                 }
             }

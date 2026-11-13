@@ -32,8 +32,13 @@ Profile → Help → "Font" shows which font is active. Without the files, the a
 - Standard patterns: tab bar (4 tabs), large titles, sheets for short tasks, confirmation dialogs for destructive actions.
 - App Store requirements already in place: account deletion, report and block, support contact.
 
+## Backend
+The app talks to `VnuaAPI`, which has two implementations:
+- `SupabaseAPI`: used when `VnuaConnect/Config/Supabase.plist` exists. Copy it from `Supabase.example.plist`; setup steps are in `../supabase/README.md`.
+- `MockAPI`: the offline demo with fictional data, used when that file is missing.
+
 ## Next
-1. Supabase schema + row-level security (`campus_id` on every table); port `MockAPITests` to run against it.
-2. `SupabaseAPI` (email OTP restricted to `hofstra.edu`), swapped in `VnuaConnectApp.swift`.
-3. Officer approval queue for join requests, push notifications (APNs), announcements.
+1. Create the Supabase project and push the schema (`../supabase/README.md`), then add custom SMTP for email codes.
+2. Officer tools: create/edit events, edit club page, announcements.
+3. Push notifications (APNs) for event changes and approved join requests.
 4. TestFlight with 2–3 clubs.

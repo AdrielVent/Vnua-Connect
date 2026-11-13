@@ -116,8 +116,22 @@ struct EventPass: Hashable, Sendable {
 
 enum CheckInSubject: Sendable {
     case pass(token: String)
-    case member(name: String)
+    case member(id: String, name: String)
     case guest(name: String)
+}
+
+/// A person an officer can find with "Look up" (members of the host clubs and people who RSVP'd).
+struct MemberSummary: Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String
+}
+
+struct JoinRequest: Identifiable, Hashable, Sendable {
+    var id: String { userId }
+    let userId: String
+    var name: String
+    var role: MemberRole
+    var requestedAt: Date
 }
 
 enum CheckInStatus: String, Sendable { case recorded, duplicate }
@@ -146,6 +160,17 @@ enum ReportReason: String, CaseIterable, Identifiable, Sendable {
     case wrongStatus = "Status claim looks wrong"
     case other = "Something else"
     var id: String { rawValue }
+
+    /// Value stored in the database enum `report_reason`.
+    var dbValue: String {
+        switch self {
+        case .impersonation: return "impersonation"
+        case .duplicate: return "duplicate"
+        case .unsafe: return "unsafe"
+        case .wrongStatus: return "wrong_status"
+        case .other: return "other"
+        }
+    }
 }
 
 /// Mirrors the web contract: {ok:false, error:{code, message, retryable}}.

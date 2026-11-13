@@ -15,6 +15,10 @@ actor MockAPI: VnuaAPI {
     private var records: [AttendanceRecord] = []
     private var passes: [String: (eventId: String, name: String, expiresAt: Date)] = [:]
     private var idempotency: [String: any Sendable] = [:]
+    private var blocked: Set<String> = []
+    /// Other students, so officer "Look up" and join requests have someone to show.
+    private let people: [String: String] = ["p_priya": "Priya N.", "p_sam": "Sam T.", "p_rowan": "Rowan E.", "p_mina": "Mina K."]
+    private var pendingRequests: [String: [JoinRequest]] = [:]
     private(set) var reports: [(String, ReportReason, String)] = []
 
     init(now: Date = .now) {
@@ -22,6 +26,8 @@ actor MockAPI: VnuaAPI {
         eventList = MockSeed.events(relativeTo: now)
         records = [AttendanceRecord(id: "rec_seed_priya", eventId: "e1", attendeeName: "Priya N.", mode: .lookup,
                                     recordedAt: now.addingTimeInterval(-3600), recordedBy: "Ava R.")]
+        pendingRequests = ["drama": [JoinRequest(userId: "p_sam", name: "Sam T.", role: .founding,
+                                                 requestedAt: now.addingTimeInterval(-7200))]]
     }
 
     func setFailNext(_ v: Bool) { failNext = v }
@@ -54,7 +60,11 @@ actor MockAPI: VnuaAPI {
 
     // MARK: auth
 
-    func requestCode(email: String, campus: Campus) async throws {
+    func restoreSession() async -> UserProfile? { user }
+
+    func signOut() async { user = nil }
+
+    func requestCode(email: String, name: String, campus: Campus) async throws {
         try await gate()
         guard email.contains("@"), campus.allows(email: email) else {
             throw APIError.validation("Use your \(campus.name) email address.")
@@ -63,8 +73,8 @@ actor MockAPI: VnuaAPI {
 
     func verify(email: String, name: String, code: String, campus: Campus) async throws -> UserProfile {
         try await gate()
-        guard code.count == 6, code.allSatisfy(\.isNumber) else {
-            throw APIError.validation("Enter the 6-digit code from your email.")
+        guard (6...8).contains(code.count), code.allSatisfy(\.isNumber) else {
+            throw APIError.validation("Enter the code from your email.")
         }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { throw APIError.validation("Enter your name.") }
@@ -115,6 +125,16 @@ actor MockAPI: VnuaAPI {
         return records.filter { $0.attendeeName == me.name && $0.removedReason == nil }
     }
 
+    func blockedClubs() async throws -> Set<String> {
+        try await gate()
+        return blocked
+    }
+
+    func setBlocked(clubId: String, blocked isBlocked: Bool) async throws {
+        try await gate()
+        if isBlocked { blocked.insert(clubId) } else { blocked.remove(clubId) }
+    }
+
     // MARK: membership
 
     func join(clubId: String, role: MemberRole, contact: ContactPreference, requestId: String) async throws -> Membership {
@@ -122,6 +142,7 @@ actor MockAPI: VnuaAPI {
             _ = try requireUser()
             guard role == .member || role == .founding else { throw APIError.forbiddenRole }
             guard let club = clubList.first(where: { $0.id == clubId }) else { throw APIError.notFound }
+            if blocked.contains(clubId) { throw APIError.validation("Unblock this club before joining.") }
             let m = Membership(clubId: clubId, role: role, status: club.requiresApproval ? .pending : .active, contact: contact)
             memberships[clubId] = m
             return m
@@ -138,6 +159,19 @@ actor MockAPI: VnuaAPI {
         try await gate()
         if memberships[clubId]?.role == .officer { throw APIError.lastAdmin }
         memberships[clubId] = nil
+    }
+
+    func joinRequests(clubId: String) async throws -> [JoinRequest] {
+        try await gate()
+        guard memberships[clubId]?.role == .officer else { throw APIError.forbidden }
+        return pendingRequests[clubId] ?? []
+    }
+
+    func reviewJoinRequest(clubId: String, userId: String, approve: Bool) async throws {
+        try await gate()
+        guard memberships[clubId]?.role == .officer else { throw APIError.forbidden }
+        guard pendingRequests[clubId]?.contains(where: { $0.userId == userId }) == true else { throw APIError.notFound }
+        pendingRequests[clubId]?.removeAll { $0.userId == userId }
     }
 
     // MARK: events
@@ -163,6 +197,15 @@ actor MockAPI: VnuaAPI {
 
     // MARK: officer tools
 
+    func searchAttendees(eventId: String, query: String) async throws -> [MemberSummary] {
+        try await gate()
+        guard isOfficer(ofHostsOf: eventId) else { throw APIError.forbidden }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        var all = people.map { MemberSummary(id: $0.key, name: $0.value) }
+        if let me = user { all.append(MemberSummary(id: me.id, name: me.name)) }
+        return all.filter { q.isEmpty || $0.name.localizedCaseInsensitiveContains(q) }.sorted { $0.name < $1.name }
+    }
+
     func checkIn(eventId: String, subject: CheckInSubject, requestId: String) async throws -> CheckInResult {
         try await idempotent(requestId) {
             let me = try requireUser()
@@ -176,8 +219,8 @@ actor MockAPI: VnuaAPI {
                 guard p.eventId == eventId else { throw APIError.validation("This pass is for a different event.") }
                 guard p.expiresAt > .now else { throw APIError.validation("This pass expired. Ask them to refresh it.") }
                 name = p.name; mode = .pass
-            case .member(let n):
-                name = n.trimmingCharacters(in: .whitespaces); mode = .lookup
+            case .member(let id, let n):
+                name = people[id] ?? (id == me.id ? me.name : n); mode = .lookup
             case .guest(let n):
                 name = n.trimmingCharacters(in: .whitespaces) + " (guest)"; mode = .guest
             }
@@ -213,7 +256,7 @@ actor MockAPI: VnuaAPI {
 
     // MARK: safety
 
-    func report(targetId: String, reason: ReportReason, detail: String) async throws {
+    func report(targetType: String, targetId: String, reason: ReportReason, detail: String) async throws {
         try await gate()
         reports.append((targetId, reason, detail))
     }

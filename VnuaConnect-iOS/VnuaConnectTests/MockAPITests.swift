@@ -13,7 +13,7 @@ final class MockAPITests: XCTestCase {
     func testRejectsNonSchoolEmail() async {
         let api = MockAPI()
         await api.setLatency(.zero)
-        do { try await api.requestCode(email: "alex@gmail.com", campus: .hofstra); XCTFail("should reject") }
+        do { try await api.requestCode(email: "alex@gmail.com", name: "Alex", campus: .hofstra); XCTFail("should reject") }
         catch { XCTAssertEqual(error as? APIError, .validation("Use your Hofstra University email address.")) }
     }
 
@@ -42,16 +42,16 @@ final class MockAPITests: XCTestCase {
 
     func testCheckInIsIdempotentAndUnique() async throws {
         let api = try await signedIn()
-        let a = try await api.checkIn(eventId: "e1", subject: .member(name: "Sam T."), requestId: "same")
-        let b = try await api.checkIn(eventId: "e1", subject: .member(name: "Sam T."), requestId: "same")
+        let a = try await api.checkIn(eventId: "e1", subject: .member(id: "p_sam", name: "Sam T."), requestId: "same")
+        let b = try await api.checkIn(eventId: "e1", subject: .member(id: "p_sam", name: "Sam T."), requestId: "same")
         XCTAssertEqual(a.record.id, b.record.id)
-        let c = try await api.checkIn(eventId: "e1", subject: .member(name: "Sam T."), requestId: "different")
+        let c = try await api.checkIn(eventId: "e1", subject: .member(id: "p_sam", name: "Sam T."), requestId: "different")
         XCTAssertEqual(c.status, .duplicate)
     }
 
     func testNonOfficerCannotCheckIn() async throws {
         let api = try await signedIn()   // member (not officer) of "rocket" → e2
-        do { _ = try await api.checkIn(eventId: "e2", subject: .member(name: "X"), requestId: "r"); XCTFail() }
+        do { _ = try await api.checkIn(eventId: "e2", subject: .member(id: "p_sam", name: "X"), requestId: "r"); XCTFail() }
         catch { XCTAssertEqual(error as? APIError, .forbidden) }
     }
 
@@ -85,5 +85,39 @@ final class MockAPITests: XCTestCase {
         let api = try await signedIn()
         do { _ = try await api.setRSVP(eventId: "e4", going: true, requestId: "r"); XCTFail() }
         catch { XCTAssertEqual(error as? APIError, .validation("This event was cancelled.")) }
+    }
+
+    func testOfficerReviewsJoinRequests() async throws {
+        let api = try await signedIn()   // officer of drama, which has a seeded request
+        let reqs = try await api.joinRequests(clubId: "drama")
+        XCTAssertEqual(reqs.map(\.name), ["Sam T."])
+        try await api.reviewJoinRequest(clubId: "drama", userId: "p_sam", approve: true)
+        let after = try await api.joinRequests(clubId: "drama")
+        XCTAssertTrue(after.isEmpty)
+        do { _ = try await api.joinRequests(clubId: "rocket"); XCTFail() }    // member, not officer
+        catch { XCTAssertEqual(error as? APIError, .forbidden) }
+    }
+
+    func testBlockedClubCannotBeJoined() async throws {
+        let api = try await signedIn()
+        try await api.setBlocked(clubId: "law", blocked: true)
+        let blocked = try await api.blockedClubs()
+        XCTAssertEqual(blocked, ["law"])
+        do { _ = try await api.join(clubId: "law", role: .member, contact: .events, requestId: "b"); XCTFail() }
+        catch { XCTAssertEqual(error as? APIError, .validation("Unblock this club before joining.")) }
+    }
+
+    func testOfficerSearchFindsMembers() async throws {
+        let api = try await signedIn()
+        let found = try await api.searchAttendees(eventId: "e1", query: "pri")
+        XCTAssertEqual(found.map(\.name), ["Priya N."])
+    }
+
+    func testServerErrorMapping() {
+        XCTAssertEqual(SupabaseAPI.map("forbidden|Only officers"), .forbidden)
+        XCTAssertEqual(SupabaseAPI.map("last_admin|x"), .lastAdmin)
+        XCTAssertEqual(SupabaseAPI.map("forbidden_role|x"), .forbiddenRole)
+        XCTAssertEqual(SupabaseAPI.map("validation|A reason is required."), .validation("A reason is required."))
+        XCTAssertEqual(SupabaseAPI.map("something unexpected"), .validation("something unexpected"))
     }
 }

@@ -21,7 +21,10 @@ final class AppState {
     var rsvps: Set<String> = []
     var blockedClubIds: Set<String> = []
     var isLoading = false
+    var isRestoring = true
     var banner: Banner?
+    /// True when running on MockAPI (no Supabase.plist). Shown as a hint on the sign-in screen.
+    var isDemo: Bool { api is MockAPI }
 
     init(api: any VnuaAPI, campus: Campus = .hofstra) {
         self.api = api
@@ -66,6 +69,12 @@ final class AppState {
         }
     }
 
+    /// Called once at launch: picks up a saved session so students don't sign in every time.
+    func restore() async {
+        defer { isRestoring = false }
+        if let profile = await api.restoreSession() { await signedIn(profile) }
+    }
+
     func signedIn(_ profile: UserProfile) async {
         user = profile
         await refresh()
@@ -79,7 +88,9 @@ final class AppState {
             async let e = api.events(campusId: campus.id)
             async let m = api.memberships()
             async let r = api.rsvps()
-            let (cs, es, ms, rs) = try await (c, e, m, r)
+            async let b = api.blockedClubs()
+            let (cs, es, ms, rs, bs) = try await (c, e, m, r, b)
+            blockedClubIds = bs
             clubs = cs
             events = es
             memberships = Dictionary(uniqueKeysWithValues: ms.map { ($0.clubId, $0) })
@@ -119,17 +130,24 @@ final class AppState {
         }
     }
 
-    func block(_ club: Club) {
-        blockedClubIds.insert(club.id)
-        show("You won't see \(club.name) anymore")
+    func setBlocked(_ club: Club, _ blocked: Bool) async {
+        if await run({ try await api.setBlocked(clubId: club.id, blocked: blocked) }) != nil {
+            if blocked { blockedClubIds.insert(club.id); show("You won't see \(club.name) anymore") }
+            else { blockedClubIds.remove(club.id) }
+        }
     }
 
-    func signOut() {
-        user = nil
-        clubs = []; events = []; memberships = [:]; rsvps = []
+    func signOut() async {
+        await api.signOut()
+        clearLocal()
     }
 
     func deleteAccount() async {
-        if await run({ try await api.deleteAccount() }) != nil { signOut() }
+        if await run({ try await api.deleteAccount() }) != nil { clearLocal() }
+    }
+
+    private func clearLocal() {
+        user = nil
+        clubs = []; events = []; memberships = [:]; rsvps = []; blockedClubIds = []
     }
 }

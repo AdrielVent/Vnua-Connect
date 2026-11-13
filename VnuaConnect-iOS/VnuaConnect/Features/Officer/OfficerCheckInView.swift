@@ -7,6 +7,7 @@ struct OfficerCheckInView: View {
 
     @State private var mode: Mode = .scan
     @State private var lookupName = ""
+    @State private var matches: [MemberSummary] = []
     @State private var guestName = ""
     @State private var records: [AttendanceRecord] = []
     @State private var lastResult: (String, Bool)?          // message, isNew
@@ -29,7 +30,7 @@ struct OfficerCheckInView: View {
 
                 switch mode {
                 case .scan: scanner
-                case .lookup: entry("Member's name", text: $lookupName) { .member(name: lookupName) }
+                case .lookup: lookup
                 case .guest: entry("Guest's name", text: $guestName) { .guest(name: guestName) }
                 }
 
@@ -88,6 +89,31 @@ struct OfficerCheckInView: View {
             Label("Camera scanning needs a physical iPhone with camera access. Use Look up instead.",
                   systemImage: "camera.badge.ellipsis")
                 .font(VnuaFont.font(.subheadline)).foregroundStyle(Palette.secondaryText)
+        }
+    }
+
+    @ViewBuilder private var lookup: some View {
+        TextField("Search members and RSVPs", text: $lookupName)
+            .textContentType(.name)
+            .autocorrectionDisabled()
+            .task(id: lookupName) {
+                try? await Task.sleep(for: .milliseconds(250))      // debounce typing
+                guard !Task.isCancelled else { return }
+                matches = await app.run({ try await app.api.searchAttendees(eventId: event.id, query: lookupName) }) ?? []
+            }
+        ForEach(matches) { m in
+            let isIn = live.contains { $0.attendeeName == m.name }
+            Button {
+                Task { await checkIn(.member(id: m.id, name: m.name)) }
+            } label: {
+                HStack {
+                    Text(m.name).foregroundStyle(Palette.text)
+                    Spacer()
+                    Image(systemName: isIn ? "checkmark.circle.fill" : "plus.circle")
+                        .foregroundStyle(isIn ? Palette.success : Palette.accent)
+                }
+            }
+            .accessibilityLabel(isIn ? "\(m.name), checked in" : "Check in \(m.name)")
         }
     }
 
