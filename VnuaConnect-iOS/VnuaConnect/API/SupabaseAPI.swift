@@ -243,6 +243,7 @@ final class SupabaseAPI: VnuaAPI {
             throw APIError.network
         } catch let e as AuthError {
             let msg = e.localizedDescription
+            if msg.contains("|") { throw Self.map(msg) }     // our sign-up trigger's 'code|message'
             if msg.localizedCaseInsensitiveContains("saving new user") { throw APIError.validation("Use your school email address.") }
             if msg.localizedCaseInsensitiveContains("expired") || msg.localizedCaseInsensitiveContains("invalid") {
                 throw APIError.validation("That code is wrong or expired. Request a new one.")

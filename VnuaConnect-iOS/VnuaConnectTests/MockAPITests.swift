@@ -119,5 +119,7 @@ final class MockAPITests: XCTestCase {
         XCTAssertEqual(SupabaseAPI.map("forbidden_role|x"), .forbiddenRole)
         XCTAssertEqual(SupabaseAPI.map("validation|A reason is required."), .validation("A reason is required."))
         XCTAssertEqual(SupabaseAPI.map("something unexpected"), .validation("something unexpected"))
+        // Exact text the live sign-up trigger returns for a non-campus email:
+        XCTAssertEqual(SupabaseAPI.map("validation|Use your school email address."), .validation("Use your school email address."))
     }
 }

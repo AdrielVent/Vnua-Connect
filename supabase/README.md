@@ -12,22 +12,22 @@ supabase/tests/run_local.sh        # → ALL SECURITY TESTS PASSED
 ```
 `tests/security_test.sql` signs in as different students and officers to check that cross-campus, cross-club and self-promotion attempts all fail.
 
-## Create the real project (one time)
-1. Create a free project at supabase.com. Pick the US East region (closest to Hofstra) and save the database password.
-2. Link and push the schema from the repo root:
-   ```
-   supabase login
-   supabase link --project-ref <your-project-ref>
-   supabase db push              # applies migrations/ (NOT seed.sql)
-   supabase config push          # applies auth settings + the 6-digit code email template
-   ```
-   If `config push` isn't available on your plan, set them in the dashboard. Authentication → Emails → "Magic Link" and "Confirm signup" templates: body must contain `{{ .Token }}`. Authentication → Providers → Email: OTP expiry 600s.
-3. App config: copy `VnuaConnect-iOS/Supabase.example.plist` to `VnuaConnect-iOS/VnuaConnect/Config/Supabase.plist`. Fill in the Project URL and the **anon / publishable** key from Project Settings → API. This file is git-ignored.
-   Never put the `service_role` key in the app.
-4. Run the app. With that file present it uses Supabase; without it, it runs the offline demo.
+## Hosted project (done)
+- Project: `vnua-connect` (ref `mjxriwbyvfyndrwtqeeh`, us-east-1), linked to this repo.
+- Database password: macOS Keychain → "Supabase DB password (vnua-connect)".
+- Schema pushed with `supabase db push --remote`. Auth settings (6-digit codes, 10-minute expiry) pushed with `supabase config push --yes`.
+- The app reads `VnuaConnect-iOS/VnuaConnect/Config/Supabase.plist` (git-ignored, anon key only).
+
+To push a new migration later:
+```
+PW=$(security find-generic-password -a vnua-connect -s "Supabase DB password (vnua-connect)" -w)
+supabase db push --remote --dry-run -p "$PW"     # review
+supabase db push --remote --yes -p "$PW"
+```
+Run `supabase config diff` before every `config push`. The local file must match production apart from the settings you mean to change.
 
 ## Before real students use it
-- **Email delivery:** Supabase's built-in email is rate-limited to a few messages per hour. Under Authentication → SMTP, connect a real provider (e.g. Resend or Postmark) using a domain you own.
+- **Email delivery (required for sign-in):** on the free plan, Supabase won't allow custom email templates while you use its built-in sender. Its default email only has a link, not the 6-digit code. Under Authentication → SMTP, connect a provider (Resend, Postmark, or Gmail with an app password for testing). Then uncomment the two `[auth.email.template.*]` blocks in `config.toml` and run `supabase config push --yes`.
 - **Make yourself admin:** in the SQL editor, run `update profiles set is_platform_admin = true where email = '<your school email>';`. Admins can see unpublished clubs and reports.
 - **Publish a club** after reviewing it: `update clubs set is_published = true where id = '<club id>';`. An in-app moderation screen comes later.
 - **Pass cleanup** happens automatically: `issue_pass` deletes passes that expired over an hour ago.
