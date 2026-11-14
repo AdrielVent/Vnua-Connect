@@ -140,6 +140,18 @@
     }
   });
   setInterval(() => { if (S.user && document.visibilityState === 'visible') run(loadInbox).then(updateBell); }, 60000);
+  // Quiet auto-refresh on list screens: every 2 minutes while the app is open and you're not typing or in a sheet.
+  // Redraws only if something actually changed, keeping your scroll position.
+  const dataSig = () => JSON.stringify([S.clubs.map((c) => [c.id, c.name, c.blurb, c.is_published, c.archived_at, c.logo_url, c.officers.length]),
+    S.events.map((e) => [e.id, e.title, e.starts_at, e.status, e.location, e.perks]), Object.values(S.memberships).map((m) => [m.club_id, m.status, m.role]), [...S.rsvps]]);
+  setInterval(async () => {
+    if (!S.user || S.booting || document.visibilityState !== 'visible' || busyTyping()) return;
+    if (!['discover', 'events', 'mine', 'club'].includes(route().name)) return;
+    const before = dataSig();
+    if (!(await run(() => loadAll().then(() => true)))) return;
+    lastLoad = Date.now();
+    if (dataSig() !== before && !busyTyping()) { const y = window.scrollY; render(); window.scrollTo(0, y); }
+  }, 120000);
   function updateBell() {
     document.querySelectorAll('[data-bell]').forEach((b) => {
       const n = unread(); b.querySelector('.dot')?.remove();
