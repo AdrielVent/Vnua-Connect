@@ -27,21 +27,23 @@ extension Color {
 }
 
 enum Palette {
-    static let ground        = Color.dynamic("#efe9df", "#12100d")
-    static let background    = Color.dynamic("#f8f4ec", "#1a1713")
-    static let surface       = Color.dynamic("#fffdf9", "#24201b")
-    static let text          = Color.dynamic("#1f1b16", "#f3ede3")
-    static let secondaryText = Color.dynamic("#5f5446", "#b9ac98")
-    static let divider       = Color.dynamic("#e2d9cb", "#3a332b")
-    static let neutralFill   = Color.dynamic("#ece4d7", "#332d26")
-    static let accent        = Color.dynamic("#7a321d", "#e2ae98")
-    static let onAccent      = Color.dynamic("#ffffff", "#1f1b16")
-    static let accentSoft    = Color.dynamic("#f8e9e2", "#3b241b")
-    static let success       = Color.dynamic("#2f5d3a", "#8fc79b")
-    static let successSoft   = Color.dynamic("#e3efe5", "#1f3324")
-    static let warning       = Color.dynamic("#7a4f12", "#e0b35c")
-    static let warningSoft   = Color.dynamic("#f6ead3", "#3a2e17")
-    static let danger        = Color.dynamic("#a2472b", "#f0a58a")
+    static let ground        = Color.dynamic("#eef1f5", "#070b14")
+    static let background    = Color.dynamic("#f6f7f9", "#0b1220")
+    static let surface       = Color.dynamic("#ffffff", "#141c2c")
+    static let text          = Color.dynamic("#101828", "#eef2f8")
+    static let secondaryText = Color.dynamic("#4b5565", "#a3aec2")
+    static let divider       = Color.dynamic("#e1e5eb", "#263045")
+    static let neutralFill   = Color.dynamic("#eef1f5", "#1c2538")
+    static let accent        = Color.dynamic("#1a3d6d", "#8db7e6")
+    static let onAccent      = Color.dynamic("#ffffff", "#0b1220")
+    static let accentSoft    = Color.dynamic("#e7eef7", "#16233a")
+    static let success       = Color.dynamic("#24704f", "#7fd1a8")
+    static let successSoft   = Color.dynamic("#e3f1ea", "#12291f")
+    static let warning       = Color.dynamic("#8a4b06", "#f2b86b")
+    static let warningSoft   = Color.dynamic("#fbeedc", "#2e2212")
+    /// SHPE orange — small highlights only (too light for text on white).
+    static let highlight     = Color.dynamic("#fd652f", "#ff8a5c")
+    static let danger        = Color.dynamic("#b42318", "#ff9c8a")
 }
 
 enum Metrics {

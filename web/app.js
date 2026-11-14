@@ -182,7 +182,7 @@
     if (S.ob) { app.innerHTML = obView(); after.ob?.(); return; }
     const r = route();
     const views = { discover: discoverView, events: eventsView, mine: mineView, people: peopleView, profile: profileView, inbox: inboxView,
-      club: clubView, event: eventView, pass: passView, checkin: checkinView, dash: dashView, 'new-club': newClubView };
+      club: clubView, event: eventView, pass: passView, checkin: checkinView, dash: dashView, 'new-club': newClubView, founder: founderView };
     const view = views[r.name] || discoverView;
     // Opened something we haven't loaded yet (a shared link, or it was just created)? Fetch once, then show it.
     const missing = (r.name === 'club' || r.name === 'dash') ? !club(r.id) : ['event', 'pass', 'checkin'].includes(r.name) ? !event(r.id) : false;
@@ -1168,6 +1168,98 @@
     run(() => rpc('mark_notifications_read', { p_ids: ids })).then(() => { const t = new Date().toISOString(); S.notifs.forEach((n) => { if (ids.includes(n.id)) n.read_at = t; }); });
   };
 
+  // ───────────── Founder dashboard ─────────────
+  // Only for accounts the database marks as founder (profiles.is_platform_admin), and only after the security question.
+  // Every check happens on the server; this screen just shows what founder_overview() returns.
+  const fd = { data: null };
+  function founderView() {
+    if (!S.user.is_platform_admin) return `${back('#/profile', 'Profile')}</div><div class="empty"><h2>Founders only</h2></div>`;
+    return `${back('#/profile', 'Profile')}<button class="link-btn" data-action="founder-lock">Lock</button></div>
+      <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px">Founder dashboard</h1>
+      <p class="muted" style="font-size:15px;margin-bottom:16px">Every club and student on Vnua-connect. Is it working?</p>
+      <div id="founder-body"><div class="spinner" style="margin:40px auto"></div></div>`;
+  }
+  function bars(series, label) {
+    // Single series → no legend; the heading names it. Hover/tap a bar for its value; a table follows for screen readers.
+    const max = Math.max(1, ...series.map((x) => x.n)), w = 100 / series.length;
+    return `<svg class="bars" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">
+      <line x1="0" y1="39.75" x2="100" y2="39.75" class="axis"/>${series.map((x, i) => { const h = x.n ? Math.max(1.5, (x.n / max) * 36) : 0;
+        return `<g><rect class="hit" x="${i * w}" y="0" width="${w}" height="40"><title>${esc(x.label)}: ${x.n}</title></rect>
+          ${h ? `<rect class="bar" x="${i * w + w * .18}" y="${40 - h}" width="${w * .64}" height="${h}" rx="0.8"><title>${esc(x.label)}: ${x.n}</title></rect>` : ''}</g>`; }).join('')}</svg>
+      <table class="sr"><caption>${esc(label)}</caption>${series.map((x) => `<tr><th>${esc(x.label)}</th><td>${x.n}</td></tr>`).join('')}</table>`;
+  }
+  function founderBody() {
+    const d = fd.data, t = d.totals, now = Date.now();
+    const signups = d.signups_by_day.map((x) => ({ label: fmt.short(new Date(x.day + 'T12:00')), n: x.n }));
+    const weeks = d.checkins_by_week.map((x) => ({ label: 'Week of ' + fmt.short(new Date(x.week + 'T12:00')), n: x.n }));
+    const waiting = d.clubs.filter((c) => !c.is_published && c.core === 4);
+    const status = (c) => c.is_published ? badge('Live', 'success') : c.core === 4 ? badge('Waiting for you', 'warning') : badge(`Forming · ${c.core}/4`, '');
+    const ago = (x) => x ? fmt.rel(new Date(x)) : 'never';
+    return `<div class="stack-l">
+      <div class="stats">${stat(t.onboarded, 'Students', `${t.students} signed up · ${t.new_7d} new this week`)}${stat(t.active_7d, 'Active this week', `${t.active_30d} in 30 days`)}
+        ${stat(t.clubs_published, 'Live clubs', `${t.clubs_forming} forming · ${t.clubs_waiting_review} waiting`)}${stat(t.checkins, 'Check-ins', `${t.rsvps ? pct(t.rsvps_that_came, t.rsvps) : '–'} of RSVPs came`)}</div>
+      ${waiting.length || t.open_reports ? `<div class="stack"><div class="section-header">Needs you</div><div class="card todos">
+        ${waiting.map((c) => `<div class="todo"><span class="spacer"><strong>${esc(c.name)}</strong> has all four officers and is waiting to go live</span>
+          <a class="btn secondary small" href="#/club/${c.id}">View</a><button class="btn primary small" data-action="founder-publish" data-id="${c.id}" data-v="1">Publish</button></div>`).join('')}
+        ${t.open_reports ? `<div class="todo"><span class="spacer">${plural(t.open_reports, 'open report')} (review in the Supabase table editor for now)</span></div>` : ''}</div></div>` : ''}
+      <div class="card stack"><div class="row"><strong class="spacer">New students per day</strong><span class="footnote">${signups.reduce((s, x) => s + x.n, 0)} in 30 days</span></div>${bars(signups, 'New students per day, last 30 days')}
+        <div class="row footnote"><span class="spacer">${esc(signups[0].label)}</span><span>Today</span></div></div>
+      <div class="card stack"><div class="row"><strong class="spacer">Check-ins per week</strong><span class="footnote">${weeks.reduce((s, x) => s + x.n, 0)} in 12 weeks</span></div>${bars(weeks, 'Check-ins per week, last 12 weeks')}
+        <div class="row footnote"><span class="spacer">${esc(weeks[0].label)}</span><span>This week</span></div></div>
+      <p class="footnote">${t.memberships} memberships · ${t.events_past} events held · ${t.events_upcoming} coming up · ${t.ratings} ratings${t.rating_avg != null ? ` (avg ★ ${t.rating_avg})` : ''} · ${t.notifications_7d} notifications sent this week</p>
+      <div class="stack"><div class="row"><div class="section-header spacer">Clubs · ${d.clubs.length}</div><button class="link-btn" data-action="founder-csv" data-v="clubs">CSV</button></div><div class="card">
+        ${d.clubs.map((c) => `<div class="list-row"><div class="spacer"><a href="#/club/${c.id}" style="font-weight:600;color:var(--text);text-decoration:none">${esc(c.name)}</a>
+          <div class="footnote">${plural(c.members, 'member')} · ${c.supporters} supporters · ${plural(c.events_past, 'event')} held · ${plural(c.checkins, 'check-in')}${c.rsvps ? ` · ${pct(c.showed, c.rsvps)} of RSVPs came` : ''}${c.rating != null ? ` · ★ ${c.rating}` : ''}</div>
+          <div class="footnote">Last activity ${ago(c.last_activity)}</div></div>${status(c)}
+          ${c.is_published ? `<button class="link-btn danger" data-action="founder-publish" data-id="${c.id}" data-v="0">Unpublish</button>` : ''}</div>`).join('') || '<p class="footnote">No clubs yet.</p>'}</div></div>
+      <div class="stack"><div class="row"><div class="section-header spacer">Students · ${d.people.length}</div><button class="link-btn" data-action="founder-csv" data-v="people">CSV</button></div><div class="card">
+        ${d.people.map((p) => `<div class="list-row"><div class="spacer"><div style="font-weight:600">${esc(p.name)}${p.onboarded_at ? '' : ' <span class="footnote">· hasn’t finished setup</span>'}</div>
+          <div class="footnote">${esc(p.email)}${p.class_year ? ' · ' + esc(p.class_year) : ''}${p.major ? ' · ' + esc(p.major) : ''}</div>
+          <div class="footnote">${plural(p.clubs, 'club')}${p.officer_of ? ` (officer of ${p.officer_of})` : ''} · ${plural(p.checkins, 'check-in')} · last signed in ${ago(p.last_sign_in_at)} · joined ${fmt.short(new Date(p.created_at))}</div></div></div>`).join('')}</div></div>
+      <div class="stack"><div class="section-header">Recent activity</div><div class="card">${d.recent.map((r) => `<div class="list-row"><span class="spacer" style="font-size:15px">${esc(r.text)}</span><span class="footnote">${fmt.rel(new Date(r.at))}</span></div>`).join('') || '<p class="footnote">Nothing yet.</p>'}</div></div>
+      <p class="footnote">Updated ${fmt.rel(new Date(d.generated_at))}. Unlocked for 12 hours on this account, then it asks again. Students are told in Profile → About that the founder can see this.</p></div>`;
+  }
+  function founderLockedHTML(question) {
+    return `<form id="founder-unlock" class="card stack" novalidate><strong>One more check</strong>
+      <p class="muted" style="font-size:15px">${esc(question || 'No security question is set for this account.')}</p>
+      ${question ? `<label class="field"><span class="sr">Answer</span><input class="input" name="answer" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Your answer"></label>
+      <button class="btn primary" type="submit">Unlock</button>` : ''}
+      <p class="footnote">5 wrong answers lock this for 15 minutes.</p></form>`;
+  }
+  after.founder = async () => {
+    if (!S.user.is_platform_admin) return;
+    const box = () => $('#founder-body');
+    const unlocked = await run(() => rpc('founder_unlocked'));
+    if (unlocked === undefined || !box()) return;
+    if (!unlocked) {
+      const qn = await run(() => rpc('admin_question')); if (!box()) return;
+      box().innerHTML = founderLockedHTML(qn);
+      $('#founder-unlock')?.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const exp = await run(() => rpc('admin_unlock', { p_answer: ev.target.answer.value }));
+        if (exp === undefined) return;
+        if (!exp) { toast('That’s not it.', true); ev.target.answer.select(); return; }
+        after.founder();
+      });
+      $('#founder-unlock input')?.focus();
+      return;
+    }
+    const d = await run(() => rpc('founder_overview'));
+    if (!d || !box()) return;
+    fd.data = d; box().innerHTML = founderBody();
+  };
+
+  // ───────────── Appearance (Automatic follows the phone's light/dark setting) ─────────────
+  const THEME_KEY = 'vnua-theme';
+  const getTheme = () => { try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch { return 'auto'; } };
+  function applyTheme(t) {
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+    const dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.querySelectorAll('meta[name=theme-color]').forEach((m) => m.setAttribute('content', dark ? '#0b1220' : '#f6f7f9'));
+  }
+  applyTheme(getTheme());
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(getTheme()));
+
   // ───────────── Profile ─────────────
   function profileView() {
     const u = S.user, active = Object.values(S.memberships).filter((m) => m.status === 'active').length;
@@ -1182,6 +1274,10 @@
         ${u.help_with?.length ? `<p class="footnote">Can help with: ${esc(u.help_with.join(', '))}</p>` : ''}${u.looking_for?.length ? `<p class="footnote">Looking for: ${esc(u.looking_for.join(', '))}</p>` : ''}
         ${contactButtons({ email: u.share_email ? u.email : '', phone: u.share_phone ? u.phone : '', linkedin: u.share_linkedin ? u.linkedin : '' })}
         <button class="btn secondary" data-action="edit-profile">Edit profile</button></div>
+      ${u.is_platform_admin ? `<a class="card row founder-entry" href="#/founder"><div class="spacer"><strong>Founder dashboard</strong><div class="footnote">Every club and student, and whether the app is working</div></div><span class="chev">›</span></a>` : ''}
+      <div class="stack"><div class="section-header">Appearance</div><div class="segmented" role="group" aria-label="Appearance">${[['auto', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
+        `<button data-action="theme" data-v="${v}" aria-pressed="${getTheme() === v}">${l}</button>`).join('')}</div>
+        <p class="footnote">Automatic follows your phone’s light/dark setting.</p></div>
       <div class="stack"><div class="section-header">Involvement record</div><div class="card" id="involvement">
         <div class="list-row"><span class="spacer">Clubs</span><strong>${active}</strong></div>
         <div class="list-row"><span class="spacer">Events attended</span><strong id="inv-count">…</strong></div><div id="inv-list"></div></div>
@@ -1199,7 +1295,8 @@
         <button class="btn secondary" data-action="set-password">Set a password</button></div></div>
       <div class="stack"><div class="section-header">About</div><div class="card stack about">
         <p><strong>Vnua-connect is student-run.</strong> It is not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p>
-        <p class="footnote">Being listed or published here is not official university recognition. Clubs apply for that through ${esc(CFG.campus.name)}’s own process.</p></div></div>
+        <p class="footnote">Being listed or published here is not official university recognition. Clubs apply for that through ${esc(CFG.campus.name)}’s own process.</p>
+        <p class="footnote">To run the service and see whether it’s working, Vnua-connect’s founder can see activity across all clubs: who joined which clubs, check-ins, RSVPs and when people last signed in. It is never sold or shared.</p></div></div>
       <div class="stack"><div class="section-header">Help</div><div class="card">
         <div class="list-row"><span class="spacer muted" style="font-size:15px">On iPhone: Share → Add to Home Screen to use it like an app</span></div>
         <div class="list-row"><a href="prototype/">Original design prototype</a></div></div></div>
@@ -1649,6 +1746,23 @@
       case 'cancel-add-account': S.adding = false; render(); break;
       case 'switch-account': switchAccount(d.id); break;
       case 'set-password': passwordSheet(); break;
+      case 'theme': { try { localStorage.setItem(THEME_KEY, d.v); } catch {} applyTheme(d.v);
+        el.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === el)); break; }
+      case 'founder-lock': await run(() => rpc('founder_lock')); fd.data = null; toast('Locked'); after.founder(); break;
+      case 'founder-publish': {
+        const yes = d.v === '1';
+        const ok = await run(() => rpc('founder_set_published', { p_club: d.id, p_published: yes }).then(() => true));
+        if (ok) { toast(yes ? 'Published. Its officers were told.' : 'Unpublished'); await run(loadAll); after.founder(); }
+        break; }
+      case 'founder-csv': {
+        if (!fd.data) break;
+        const c = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+        const rows = d.v === 'clubs'
+          ? ['name,status,officers_of_4,members,supporters,events_held,events_upcoming,checkins,rsvps,rsvps_that_came,rating,last_activity',
+             ...fd.data.clubs.map((x) => [c(x.name), x.is_published ? 'live' : x.core === 4 ? 'waiting' : 'forming', x.core, x.members, x.supporters, x.events_past, x.events_upcoming, x.checkins, x.rsvps, x.showed, x.rating ?? '', x.last_activity || ''].join(','))]
+          : ['name,email,year,major,joined,finished_setup,last_sign_in,clubs,officer_of,checkins,rsvps',
+             ...fd.data.people.map((x) => [c(x.name), c(x.email), c(x.class_year), c(x.major), x.created_at, x.onboarded_at ? 'yes' : 'no', x.last_sign_in_at || '', x.clubs, x.officer_of, x.checkins, x.rsvps].join(','))];
+        download(`vnua-${d.v}-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv', rows.join('\n')); break; }
       case 'delete-account': confirmSheet('Delete your account?', 'This removes your profile, memberships and RSVPs. It can’t be undone.', 'Delete account', async () => {
         await rpc('delete_account'); await sb.auth.signOut({ scope: 'local' }); return true; }); break;
     }

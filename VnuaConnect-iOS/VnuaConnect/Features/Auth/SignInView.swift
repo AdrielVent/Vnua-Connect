@@ -39,10 +39,10 @@ struct SignInView: View {
                         .disabled(codeSent)
 
                     if codeSent {
-                        field("Code from your email", text: $code, field: .code)
+                        field("6-digit code", text: $code, field: .code)
                             .textContentType(.oneTimeCode)
                             .keyboardType(.numberPad)
-                        Text(app.isDemo ? "Demo mode: any 6 digits work." : "Check \(email) on this iPhone. Tap the link in the email, or type the code if it shows one. It can take a minute, and check spam too.")
+                        Text(app.isDemo ? "Demo mode: any 6 digits work." : "We emailed a 6-digit code to \(email). It can take a minute, so check spam too. Codes expire after 10 minutes.")
                             .font(VnuaFont.font(.footnote))
                             .foregroundStyle(Palette.secondaryText)
                     }

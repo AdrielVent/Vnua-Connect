@@ -12,8 +12,9 @@
   --font-display: "Figtree", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
   color-scheme: light dark;
 }
+/* Dark: automatic (phone setting) unless the user picked Light; or forced by picking Dark in Profile → Appearance. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ground: #070b14; --bg: #0b1220; --surface: #141c2c; --text: #eef2f8; --text-2: #a3aec2;
     --divider: #263045; --fill: #1c2538; --accent: #8db7e6; --on-accent: #0b1220; --accent-soft: #16233a;
     --highlight: #ff8a5c;
@@ -21,6 +22,15 @@
     --shadow: 0 4px 16px rgba(0, 0, 0, .45);
   }
 }
+:root[data-theme="dark"] {
+    --ground: #070b14; --bg: #0b1220; --surface: #141c2c; --text: #eef2f8; --text-2: #a3aec2;
+    --divider: #263045; --fill: #1c2538; --accent: #8db7e6; --on-accent: #0b1220; --accent-soft: #16233a;
+    --highlight: #ff8a5c;
+    --success: #7fd1a8; --success-soft: #12291f; --warning: #f2b86b; --warning-soft: #2e2212; --danger: #ff9c8a;
+    --shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.4 var(--font);
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
@@ -230,7 +240,8 @@ img.logo { flex: none; object-fit: cover; border-radius: 26%; background: #fff; 
 .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; clip: auto; }
 .avatar { flex: none; display: grid; place-items: center; border-radius: 50%; font-weight: 700; color: hsl(var(--h) 45% 28%);
   background: hsl(var(--h) 55% 88%); font-family: var(--font-display); }
-@media (prefers-color-scheme: dark) { .avatar { color: hsl(var(--h) 60% 85%); background: hsl(var(--h) 30% 26%); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .avatar { color: hsl(var(--h) 60% 85%); background: hsl(var(--h) 30% 26%); } }
+:root[data-theme="dark"] .avatar { color: hsl(var(--h) 60% 85%); background: hsl(var(--h) 30% 26%); }
 .people .person { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; border-bottom: .5px solid var(--divider); }
 .people .person:first-child { padding-top: 0; } .people .person:last-child { border-bottom: 0; padding-bottom: 0; }
 .ask { font-size: 15px; margin-top: 4px; }
@@ -341,3 +352,11 @@ button, .btn, .chip, .chip-check, .tabbar a, .back, .link-btn, .segmented button
 .bar span { background: var(--accent); }
 .note.unread { border-left-color: var(--highlight); }
 .dots span.on { background: var(--accent); }
+
+/* Founder dashboard charts: one series, thin bars, quiet axis */
+.bars { width: 100%; height: 96px; display: block; }
+.bars .axis { stroke: var(--divider); stroke-width: .5; vector-effect: non-scaling-stroke; }
+.bars .bar { fill: var(--accent); }
+.bars .hit { fill: transparent; }
+.bars g:hover .bar { fill: var(--highlight); }
+.founder-entry { align-items: center; border-color: var(--accent); }

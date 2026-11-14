@@ -6,6 +6,8 @@ Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra Uni
 
 **Sign-in, honestly:** today the sign-in email contains a link (Supabase's built-in sender). A 6-digit code needs custom SMTP; once that's set up and a real code has arrived, set `signInEmail: 'code'` in `web/config.js`. Email links open in Safari, so inside an iPhone Home Screen install, sign in with a password (set one in Profile).
 
+**Founder dashboard & privacy:** the founder's account (`profiles.is_platform_admin`) can open Profile → Founder dashboard after answering a security question (stored only as a bcrypt hash, set with the service key, never in this repo). It shows usage across all clubs and students. Students are told this in Profile → About.
+
 ## Try it
 - **Web (Safari, any phone or computer):** https://adrielvent.github.io/Vnua-Connect/. Sign in with your Hofstra email. On iPhone, use Share → Add to Home Screen.
 - **iPhone app:** open `VnuaConnect-iOS/VnuaConnect.xcodeproj` in Xcode and press Run. See `VnuaConnect-iOS/README.md`.

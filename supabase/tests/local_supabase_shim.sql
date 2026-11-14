@@ -8,7 +8,8 @@ create schema auth;
 create table auth.users (
   id                 uuid primary key default gen_random_uuid(),
   email              text not null,
-  raw_user_meta_data jsonb not null default '{}'
+  raw_user_meta_data jsonb not null default '{}',
+  last_sign_in_at    timestamptz
 );
 
 -- Supabase's auth.uid(): the "sub" claim of the caller's JWT.

@@ -4,6 +4,7 @@ struct ProfileView: View {
     @Environment(AppState.self) private var app
     @State private var involvement: [AttendanceRecord] = []
     @State private var confirmDelete = false
+    @AppStorage("appearance") private var appearance: Appearance = .automatic
 
     var body: some View {
         NavigationStack {
@@ -45,6 +46,23 @@ struct ProfileView: View {
                             }
                         }
                     }
+                }
+
+                Section {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Automatic follows your iPhone's light/dark setting.")
+                }
+
+                Section("About") {
+                    Text("Vnua-connect is student-run. It is not affiliated with or endorsed by \(app.campus.name).")
+                    Text("Being listed here is not official university recognition. To run the service and see whether it's working, Vnua-connect's founder can see activity across all clubs: who joined which clubs, check-ins, RSVPs and when people last signed in. It is never sold or shared.")
+                        .font(VnuaFont.font(.footnote)).foregroundStyle(Palette.secondaryText)
                 }
 
                 Section("Help") {

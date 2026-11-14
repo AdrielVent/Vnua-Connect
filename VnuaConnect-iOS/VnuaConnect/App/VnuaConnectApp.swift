@@ -26,8 +26,17 @@ struct VnuaConnectApp: App {
     }
 }
 
+/// Light/dark choice. `.automatic` follows the phone's Settings → Display & Brightness.
+enum Appearance: String, CaseIterable, Identifiable {
+    case automatic, light, dark
+    var id: String { rawValue }
+    var label: String { switch self { case .automatic: "Automatic"; case .light: "Light"; case .dark: "Dark" } }
+    var colorScheme: ColorScheme? { switch self { case .automatic: nil; case .light: .light; case .dark: .dark } }
+}
+
 struct RootView: View {
     @Environment(AppState.self) private var app
+    @AppStorage("appearance") private var appearance: Appearance = .automatic
 
     var body: some View {
         Group {
@@ -46,6 +55,7 @@ struct RootView: View {
                     .padding(.top, 4)
             }
         }
+        .preferredColorScheme(appearance.colorScheme)
         .animation(.snappy, value: app.banner)
         .animation(.default, value: app.user == nil)
         .task {
