@@ -1110,7 +1110,10 @@
     if (!S.user.discoverable) return `${titleBar('People')}<div class="card stack"><strong>Meet people who like what you like</strong>
       <p class="muted" style="font-size:15px">Turn this on to see students who share your interests, and let them see you. Only the contact details you choose are shown.</p>
       <button class="btn primary" data-action="go-visible">Turn on</button></div>`;
-    return `${titleBar('People')}<p class="muted" style="margin:-6px 0 16px;font-size:15px">Students who share ${S.user.interests?.length ? esc(S.user.interests.join(', ')) : 'your interests'}.</p>
+    return `${titleBar('People')}<p class="muted" style="margin:-6px 0 12px;font-size:15px">Students who share ${S.user.interests?.length ? esc(S.user.interests.join(', ')) : 'your interests'}${S.user.major ? ` or your major (${esc(S.user.major)})` : ''}.</p>
+      <div class="card toggles" style="margin-bottom:16px"><label class="toggle"><span class="spacer"><span style="font-weight:600">Open to connect</span><br>
+        <span class="footnote">Your LinkedIn shows only to students who also turned this on, and theirs shows to you. No messages, no feed.</span></span>
+        <input type="checkbox" role="switch" data-connect ${S.user.open_to_connect ? 'checked' : ''}></label></div>
       <div id="people" class="stack"><div class="spinner" style="margin:40px auto"></div></div>`;
   }
   after.people = async () => {
@@ -1123,7 +1126,7 @@
         <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">⚑</button></div>
       ${p.bio ? `<p style="margin-top:8px">${esc(p.bio)}</p>` : ''}
       ${p.help_with?.length ? `<p class="footnote" style="margin-top:6px">Can help with: ${esc(p.help_with.join(', '))}</p>` : ''}${p.looking_for?.length ? `<p class="footnote">Looking for: ${esc(p.looking_for.join(', '))}</p>` : ''}
-      <div class="badges">${p.interests.map((i) => badge(i, p.shared.includes(i) ? 'accent' : '')).join('')}${p.common_clubs ? badge(`${plural(p.common_clubs, 'club')} in common`, 'success') : ''}</div>
+      <div class="badges">${p.same_major ? badge('Same major', 'success') : ''}${p.interests.map((i) => badge(i, p.shared.includes(i) ? 'accent' : '')).join('')}${p.common_clubs ? badge(`${plural(p.common_clubs, 'club')} in common`, 'success') : ''}</div>
       ${contactButtons(p) || '<p class="footnote" style="margin-top:8px">Hasn’t shared contact info yet. You might meet at a club event.</p>'}</div>`).join('')
       || `<div class="empty"><h2>No one yet</h2><p>As more students join with ${S.user.interests?.length ? 'your interests' : 'interests set'}, they’ll show up here.</p><button class="btn secondary" style="max-width:240px;margin:16px auto 0" data-action="edit-profile">Edit interests</button></div>`;
   };
@@ -1650,7 +1653,7 @@
       case 'announce': announceSheet(c); break;
       case 'share': {
         const url = `${HERE}#/club/${c.id}`;
-        if (navigator.share) navigator.share({ title: c.name, text: `Check out ${c.name} on Vnua-connect`, url }).catch(() => {});
+        if (navigator.share) navigator.share({ title: c.name, text: `${c.name} is on Vnua-connect. Tap to see it and join with your Hofstra email:`, url }).catch(() => {});
         else copy(url, 'Link');
         break; }
       case 'report': closeSheet(); reportSheet(d.type, d.id, d.name); break;
@@ -1791,6 +1794,11 @@
         recognition_ok: card.querySelector('[data-mem=recognition]')?.checked ?? m.recognition_ok };
       const ok = await run(() => rpc('update_membership', { p_club: clubId, p_notify: next.notify, p_involvement: next.involvement, p_recognition_ok: next.recognition_ok }).then(() => true));
       if (ok) { Object.assign(m, next); if (next.involvement === 'organize' && m.role === 'member') m.role = 'founding'; toast('Saved'); }
+    }
+    if (el.dataset.connect !== undefined) {
+      const on = el.checked;
+      const ok = await run(() => rpc('set_open_to_connect', { p_on: on }).then(() => true));
+      if (ok) { S.user.open_to_connect = on; toast(on ? 'Open to connect' : 'LinkedIn hidden'); after.people(); } else el.checked = !on;
     }
     if (el.dataset.privacy) {
       const key = el.dataset.privacy, val = el.checked;

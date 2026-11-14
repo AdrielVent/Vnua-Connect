@@ -56,22 +56,20 @@ enum Metrics {
 }
 
 // MARK: - Typography
-// Brand font: Circular (Lineto). It is commercial: buy a license that covers app embedding,
-// then drop the .otf/.ttf files into VnuaConnect/Resources/Fonts. FontRegistrar loads them at
-// launch and every style below switches to Circular automatically. Until then we fall back to
-// SF Pro, Apple's system font. Every style scales with Dynamic Type (relativeTo:).
+// Display font: Figtree (SIL Open Font License 1.1, free to embed; license in Resources/Fonts/Figtree-OFL.txt).
+// Only Bold and ExtraBold are bundled, for titles and emphasis; body text stays SF Pro, Apple's system font.
+// (Circular by Lineto was removed: it is commercial-only.) Every style scales with Dynamic Type (relativeTo:).
 
 enum VnuaFont {
     enum Weight { case regular, medium, bold, black }
 
-    /// Brand fonts found in the bundle, keyed by weight. Filled by FontRegistrar at launch from each file's
-    /// real family name and weight, so any Circular file naming works (lineto-circular-book.ttf, CircularStd-Bold.otf…).
-    /// A weight is only filled by a file that's actually close to it, so a lone Black file never ends up as body text.
+    /// Brand fonts found in the bundle, keyed by weight. Filled by FontRegistrar at launch.
+    /// Only .bold (Figtree Bold) and .black (Figtree ExtraBold) are bundled, so regular/medium text stays SF Pro.
     nonisolated(unsafe) fileprivate(set) static var resolved: [Weight: String] = [:]
 
     static var isUsingBrandFont: Bool { !resolved.isEmpty }
 
-    /// Big display text (screen titles, page headers) uses Circular Black when it's installed.
+    /// Big display text (screen titles, page headers) uses Figtree ExtraBold.
     private static let displayStyles: Set<Font.TextStyle> = [.largeTitle, .title, .title2]
 
     private static func name(for style: Font.TextStyle?, _ weight: Weight) -> String? {
@@ -131,43 +129,28 @@ enum VnuaFont {
 }
 
 enum FontRegistrar {
-    /// Registers every bundled .otf/.ttf and picks the closest Circular file for each weight we use.
+    /// Registers the bundled Figtree files: Bold → .bold, ExtraBold → .black (display titles).
     static func registerBundledFonts() {
         let urls = ["otf", "ttf"].flatMap { Bundle.main.urls(forResourcesWithExtension: $0, subdirectory: nil) ?? [] }
-        var found: [(name: String, weight: CGFloat)] = []
+        var out: [VnuaFont.Weight: String] = [:]
         for url in urls {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             let descriptors = (CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor]) ?? []
             for d in descriptors {
                 let family = (CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute) as? String) ?? ""
-                guard family.localizedCaseInsensitiveContains("circular"),
+                guard family.localizedCaseInsensitiveContains("figtree"),
                       let name = CTFontDescriptorCopyAttribute(d, kCTFontNameAttribute) as? String,
                       !name.localizedCaseInsensitiveContains("italic") else { continue }
-                let font = CTFontCreateWithName(name as CFString, 12, nil)
-                let traits = CTFontCopyTraits(font) as NSDictionary
-                let w = (traits[kCTFontWeightTrait] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
-                found.append((name, w))
-            }
-        }
-        guard !found.isEmpty else { return }
-        // Target weights on Core Text's −1…1 scale: Book ≈ 0, Medium ≈ 0.23, Bold ≈ 0.4, Black ≈ 0.8.
-        // Only accept a file within 0.15 of the target; otherwise that weight stays SF Pro.
-        let targets: [(VnuaFont.Weight, CGFloat)] = [(.regular, 0), (.medium, 0.23), (.bold, 0.4), (.black, 0.8)]
-        var out: [VnuaFont.Weight: String] = [:]
-        for (weight, target) in targets {
-            if let best = found.min(by: { abs($0.weight - target) < abs($1.weight - target) }),
-               abs(best.weight - target) <= 0.15 {
-                out[weight] = best.name
+                if name.hasSuffix("-ExtraBold") { out[.black] = name }
+                else if name.hasSuffix("-Bold") { out[.bold] = name }
             }
         }
         VnuaFont.resolved = out
     }
 
-    /// Which Circular files ended up in use, for the Profile screen.
+    /// Which fonts ended up in use, for the Profile screen.
     static var summary: String {
-        VnuaFont.resolved.isEmpty ? "SF Pro (Circular not installed)"
-            : Set(VnuaFont.resolved.values).sorted().joined(separator: ", ")
-              + (VnuaFont.resolved[.regular] == nil ? " + SF Pro for text" : "")
+        VnuaFont.resolved.isEmpty ? "SF Pro (Figtree not bundled)" : "Figtree for titles, SF Pro for text"
     }
 
     /// Navigation bar titles use the brand font too.

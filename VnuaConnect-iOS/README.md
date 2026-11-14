@@ -15,16 +15,14 @@ The folders are *synchronized*: any file you add under `VnuaConnect/` is part of
 | Folder | What it holds |
 |---|---|
 | `App/` | App entry, tab bar, `AppState` (single source of truth) |
-| `Design/` | Color tokens (light + dark), Circular-ready type scale, buttons/cards/badges |
+| `Design/` | Color tokens (light + dark), Figtree (titles) + SF Pro (text) type scale, buttons/cards/badges |
 | `Models/` | Campus, Club, Event, Membership, Attendance, errors |
 | `API/` | `VnuaAPI` protocol + `MockAPI` (port of `src/vnua-mock-api.js`). `SupabaseAPI` goes here next |
 | `Features/` | Sign in, Discover, Club detail, Events, Pass (rotating QR), Officer check-in (VisionKit scanner), My Clubs, Profile |
-| `Resources/Fonts/` | Put licensed Circular `.otf` files here |
+| `Resources/Fonts/` | Figtree Bold/ExtraBold (SIL OFL, license file included) |
 
-## Circular font
-Circular is a commercial font from Lineto. You need a license that covers **app embedding** (separate from desktop).
-After you buy one, drop the `.otf` files into `VnuaConnect/Resources/Fonts/` and run the app. They're registered at launch and every text style switches over automatically, still scaling with Dynamic Type.
-Profile → Help → "Font" shows which font is active. Without the files, the app uses SF Pro (Apple's system font).
+## Font
+Titles use **Figtree** (SIL Open Font License 1.1 — free to embed and ship; `Resources/Fonts/Figtree-OFL.txt`). Body text uses SF Pro. Circular (Lineto) was removed on Nov 14, 2026 because it is commercial-only.
 
 ## Design rules (Apple HIG)
 - 44pt minimum tap targets, Dynamic Type on every style, SF Symbols, VoiceOver labels.

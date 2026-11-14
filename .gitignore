@@ -17,3 +17,5 @@ supabase/.branches/
 # Font files: licensed per-person/per-app; never redistribute them in a public repo
 VnuaConnect-iOS/VnuaConnect/Resources/Fonts/*.ttf
 VnuaConnect-iOS/VnuaConnect/Resources/Fonts/*.otf
+# Figtree is SIL OFL (free to embed and redistribute), so it is committed.
+!VnuaConnect-iOS/VnuaConnect/Resources/Fonts/Figtree-*.ttf
