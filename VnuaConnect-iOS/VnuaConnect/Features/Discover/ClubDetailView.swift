@@ -76,7 +76,7 @@ struct ClubDetailView: View {
                     Label("Join request sent. An officer will review it.", systemImage: "clock")
                         .font(VnuaFont.font(.subheadline, .medium)).foregroundStyle(Palette.warning)
                 } else {
-                    Label("You're a \(m.role.label.lowercased())", systemImage: "checkmark.seal.fill")
+                    Label("You're \(m.role == .officer ? "an" : "a") \(m.role.label.lowercased())", systemImage: "checkmark.seal.fill")
                         .font(VnuaFont.font(.headline, .medium)).foregroundStyle(Palette.success)
                 }
                 Picker("Emails from this club", selection: Binding(

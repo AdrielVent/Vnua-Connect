@@ -2,7 +2,7 @@
   "name": "Vnua-connect",
   "short_name": "Vnua",
   "description": "Giving clubs a chance.",
-  "start_url": "./?app=1",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f8f4ec",

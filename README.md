@@ -1,50 +1,35 @@
 # Vnua-connect — Giving clubs a chance.
 
-Prototype app for emerging, student-led interest groups: discover clubs, join or help found one, RSVP, check in, and give officers phone check-in, corrections and attendance downloads.
+A home for emerging, student-led clubs at Hofstra: discover clubs, join or help found one, RSVP, show a check-in pass, and give officers phone check-in, corrections and attendance exports.
 
-**Prototype status:** all data is fictional. There is no backend, real login, email or secure attendance. `src/vnua-mock-api.js` simulates the server. Vnua-connect isn't affiliated with or endorsed by Hofstra, SHPE or AIAA, and appearing on it doesn't mean university recognition.
+Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra University, and appearing on it doesn't mean university recognition.
 
-## Files
-- `index.html`: a self-contained build that works offline. Open it directly or host it.
-- `src/`: editable source. Serve this folder and open `Vnua-connect.dc.html`.
-- `tests/`, `playwright.config.js`: Playwright wrapper around the in-page self-test.
+## Try it
+- **Web (Safari, any phone or computer):** https://adrielvent.github.io/Vnua-Connect/. Sign in with your Hofstra email. On iPhone, use Share → Add to Home Screen.
+- **iPhone app:** open `VnuaConnect-iOS/VnuaConnect.xcodeproj` in Xcode and press Run. See `VnuaConnect-iOS/README.md`.
+- **Original design prototype** (fictional data, works offline): https://adrielvent.github.io/Vnua-Connect/prototype/
 
-## Run locally
-```
-cd src && python3 -m http.server 8000
-# open http://localhost:8000/Vnua-connect.dc.html
-# browser console: await vnuaSelfTest()
-```
-To run the Playwright tests, run them from the repo root after changing the config's `webServer` command to `cd src && python3 -m http.server 8000`:
-```
-npm i -D @playwright/test && npx playwright install chromium && npx playwright test
-```
+Both apps use the same live backend, so a club started on the web shows up in the iPhone app.
 
-## Publish with GitHub Pages
-1. Create an empty repo on github.com (for example `vnua-connect`).
-2. Push this folder:
-```
-git init && git add . && git commit -m "Vnua-connect prototype"
-git branch -M main
-git remote add origin https://github.com/AdrielVent/Vnua-Connect.git
-git push -u origin main
-```
-3. In the repo, go to Settings → Pages → Source: "Deploy from a branch", then pick `main` and `/ (root)`.
-4. The site goes live at `https://AdrielVent.github.io/Vnua-Connect/`. To embed it in your website:
-```html
-<iframe src="https://AdrielVent.github.io/Vnua-Connect/" style="width:100%;height:900px;border:0" title="Vnua-connect"></iframe>
-```
+## How it fits together
+| Folder | What it is |
+|---|---|
+| `index.html`, `web/` | Live web app. Plain HTML/CSS/JS with no build step; GitHub Pages serves it as is |
+| `VnuaConnect-iOS/` | Native SwiftUI iPhone app |
+| `supabase/` | Backend: database schema, security rules, server functions, security tests. See `supabase/README.md` |
+| `prototype/`, `src/` | The original clickable design prototype and its source |
 
-## Toward a publishable app
-This site is a design prototype, not something ready for app stores. To get there:
-1. Add a real backend and authentication, with per-club officer roles enforced on the server, following the API contract in `vnua-mock-api.js`.
-2. Add email verification, plus privacy, retention and deletion policies.
-3. Package it as an installable web app (PWA) or wrap it with Capacitor for the app stores.
+All the rules live in the database: who can see what, officer-only check-in, one record per person per event, corrections that keep the original. The web and iPhone apps can't bypass them. `web/config.js` contains the Supabase **anon** key, which is public by design. The service_role key must never appear in this repo.
+
+## Run the web app locally
+```
+python3 -m http.server 8000      # from the repo root
+# open http://localhost:8000/
+```
+Sign-in links can return to `http://localhost:8000/` and to the GitHub Pages URL (set in `supabase/config.toml`).
+
+## Updating the live site
+Push to `main`. GitHub Pages redeploys in about a minute. When `web/app.js` or `web/app.css` changes, bump the `?v=` number in `index.html` so browsers don't use a cached copy.
 
 ## License
-MIT. See `LICENSE`. The bundled QR library (qrcode-generator) is also MIT.
-
-## Links
-- Repo: https://github.com/AdrielVent/Vnua-Connect
-- Live demo: https://adrielvent.github.io/Vnua-Connect/
-- iPhone app mode: https://adrielvent.github.io/Vnua-Connect/?app=1 (Safari → Share → Add to Home Screen)
+MIT. See `LICENSE`. QR libraries (qrcode-generator, jsQR) are MIT/Apache-2.0. Fonts are not included in this repo.
