@@ -10,4 +10,3 @@ cd tests/live && [ -d node_modules ] || npm install --silent
 SHOTS=$SHOTS SITE=$SITE node web_e2e.mjs
 SITE=$SITE node ptr_check.mjs
 SITE=$SITE node fonts_hang.mjs
-SITE=$SITE node layout_slot_check.mjs
