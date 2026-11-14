@@ -16,10 +16,18 @@ All the rules live in the database (`migrations/`), so a modified app still can'
 - **Officer data:** `event_stats` (RSVPs, check-ins, how many RSVPs came, ratings) and `club_insights` (every member ranked by check-ins, officers flagged so they're left out of rankings and "top supporters", members who missed the last 3 events).
 - **Members:** `club_leaderboard` (members only, officers not ranked, opt-out in Profile) and `people_to_meet` (shared interests; you only see others while you're findable too).
 
+## Founding tools (migration `20261115000000`)
+- **Shared links:** `club_preview` / `event_preview` are the only functions signed-out visitors can call. Published clubs only; officers appear by first name and position, never emails.
+- **Per-club preferences:** involvement (*Keep me updated / I'll come when I can / I want to help build it*) and an explicit yes/no for being counted and contacted for the recognition request. Top supporters only include members who said yes.
+- **"First time?" info** on events (`events.newcomer`), and `update_event` (moving the time or place notifies people).
+- **Tasks:** officer-only follow-ups with owner, due date and linked event.
+- **Availability polls:** members answer yes/maybe/no per time; officers only see totals; `schedule_poll` turns the chosen time into an event.
+- **Feedback:** optional "keep" / "change" text with a rating, shown to officers shuffled and only once 3+ people responded.
+
 ## Test locally (no Docker needed)
 ```
 brew install postgresql@17
-supabase/tests/run_local.sh        # → ALL SECURITY TESTS PASSED, ALL V2 TESTS PASSED
+supabase/tests/run_local.sh        # → ALL SECURITY / V2 / V3 TESTS PASSED
 ```
 `tests/security_test.sql` signs in as different students and officers to check that cross-campus, cross-club and self-promotion attempts all fail. `tests/v2_test.sql` covers officer teams, invites, reminders, anonymous ratings, nudges, leaderboards and the function whitelist. (pg_cron and Storage don't exist in plain Postgres, so those parts are skipped locally.)
 

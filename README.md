@@ -1,6 +1,6 @@
 # Vnua-connect — Giving clubs a chance.
 
-A home for emerging, student-led interest clubs at Hofstra. Students sign in with a 6-digit code, set up a quick profile (major, year, up to 3 interests), and join or start a club. A club goes live once its president, VP, treasurer and secretary accept. Officers get check-in, automatic event reminders, anonymous ratings, member rankings, friendly "still interested?" check-ins, and the member list they need to apply for official recognition. No group chat: members only get the notifications they choose.
+A home for emerging, student-led interest clubs at Hofstra. Students sign in with a 6-digit code, set up a quick profile (major, year, up to 3 interests), and join or start a club. A club goes live once its president, VP, treasurer and secretary accept. Officers get check-in, automatic event reminders, anonymous ratings, member rankings, friendly "still interested?" check-ins, and the member list they need to apply for official recognition. No group chat: members only get the notifications they choose. Shared club and event links work before someone signs up, so a link in a group chat or on a poster turns into a join (or an offer to help build the club). Officers get a "Needs attention" list, follow-up tasks, and "Find a time" polls.
 
 Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra University, and appearing on it doesn't mean university recognition.
 

@@ -10,7 +10,7 @@
   const HERE = location.origin + location.pathname;          // email link comes back here
 
   // ───────────── State ─────────────
-  const blankSignin = () => ({ email: '', sent: false, busy: false, sentAt: 0 });
+  const blankSignin = () => ({ email: '', sent: false, busy: false, sentAt: 0, show: false });
   const S = {
     booting: true, user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(),
     notifs: [], invites: [], q: '', interest: null, evScope: 'all', signin: blankSignin(), ob: null, nc: null,
@@ -29,6 +29,14 @@
     ['rsvp', 'Just what I RSVP to', 'Announcements, plus reminders for events you said you’re going to'],
     ['none', 'Nothing', 'No notifications. You’ll check the app yourself']];
   const RECOGNITION_GOAL = 15;
+  const INVOLVE = [['updates', 'Keep me updated', 'You mostly want to hear what’s going on'],
+    ['attend', 'I’ll come when I can', 'You plan to show up to events'],
+    ['organize', 'I want to help build it', 'Officers may reach out about planning and running things']];
+  const NEWCOMER = [['who', 'Who it’s for', 'e.g. Anyone curious, no experience needed'], ['experience', 'Experience needed', 'e.g. None'],
+    ['bring', 'What to bring', 'e.g. Nothing, or a laptop'], ['cost', 'Cost', 'e.g. Free'], ['meet', 'Where exactly to go', 'e.g. Room 141, second floor, door on the left'],
+    ['happens', 'What happens', 'e.g. 10 min intros, then we split into teams'], ['contact', 'Questions before you come', 'e.g. Text Pat, or email the club']];
+  const HELP = ['Event setup', 'Design', 'Outreach', 'Social media', 'Tech projects', 'Fundraising', 'Writing', 'Photography', 'Running meetings'];
+  const LOOKING = ['Community', 'Friends', 'Leadership experience', 'A project', 'Mentorship', 'Career connections'];
 
   // ───────────── Helpers ─────────────
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -165,7 +173,11 @@
     cleanup.forEach((f) => f()); cleanup = [];
     const app = $('#app');
     if (S.booting) { app.innerHTML = '<div class="boot"><div class="spinner" role="status" aria-label="Loading"></div></div>'; return; }
-    if (!S.user) { app.innerHTML = signInView(); bindSignIn(); return; }
+    if (!S.user) {
+      const pr = route();
+      if (!S.signin.show && (pr.name === 'club' || pr.name === 'event') && pr.id) { app.innerHTML = previewShell(); loadPreview(pr); return; }
+      app.innerHTML = signInView(); bindSignIn(); return;
+    }
     if (S.ob) { app.innerHTML = obView(); after.ob?.(); return; }
     const r = route();
     const views = { discover: discoverView, events: eventsView, mine: mineView, people: peopleView, profile: profileView, inbox: inboxView,
@@ -227,6 +239,12 @@
     <div class="event-title" style="margin:6px 0;min-height:2.8em">${esc(e.title)}</div>
     <div class="footnote" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmt.time(e.start)}${e.location ? ' · ' + esc(e.location) : ''}</div>
     ${S.rsvps.has(e.id) ? `<div class="badges">${badge('Going', 'success')}</div>` : ''}</a>`;
+  function newcomerHTML(n) {
+    const rows = NEWCOMER.filter(([k]) => n?.[k]);
+    if (!rows.length) return '';
+    return `<div class="card stack newcomer"><strong>First time? Here’s what to know</strong><dl class="facts stacked">${rows.map(([k, l]) =>
+      `<div><dt>${esc(l)}</dt><dd>${esc(n[k])}</dd></div>`).join('')}</dl></div>`;
+  }
   /** Email / text / LinkedIn buttons for whatever a person chose to share. */
   function contactButtons(p) {
     const b = [];
@@ -240,6 +258,58 @@
   const stars = (eventId, value, size = '') => `<div class="stars ${size}" role="group" aria-label="Rate this event">${[1, 2, 3, 4, 5].map((v) =>
     `<button type="button" class="star${value >= v ? ' on' : ''}" data-action="rate" data-event="${eventId}" data-v="${v}" aria-label="${v} star${v > 1 ? 's' : ''}" aria-pressed="${value === v}">${icon.star}</button>`).join('')}</div>`;
 
+  // ───────────── Shared links: public preview before signing up ─────────────
+  // What someone sees when a club or event link is opened from a group chat, email or poster.
+  const INTENT_KEY = 'vnua-intent';
+  const saveIntent = (it) => { try { sessionStorage.setItem(INTENT_KEY, JSON.stringify(it)); } catch {} };
+  const peekIntent = () => { try { return JSON.parse(sessionStorage.getItem(INTENT_KEY) || 'null'); } catch { return null; } };
+  const takeIntent = () => { const it = peekIntent(); try { sessionStorage.removeItem(INTENT_KEY); } catch {} return it; };
+  function applyIntent() {
+    const it = takeIntent(); if (!it) return false;
+    if (it.type === 'event') { location.hash = `#/event/${it.id}`; render(); return true; }
+    location.hash = `#/club/${it.id}`; render();
+    const c = club(it.id);
+    if (c && !membership(c.id)) setTimeout(() => joinSheet(c, it.type === 'help' ? 'organize' : 'attend'), 120);
+    return true;
+  }
+  const previewShell = () => '<main class="screen no-tabs narrow" id="preview"><div class="spinner" style="margin:80px auto"></div></main>';
+  async function loadPreview(r) {
+    let data = null;
+    try { data = await rpc(r.name === 'club' ? 'club_preview' : 'event_preview', r.name === 'club' ? { p_club: r.id } : { p_event: r.id }); } catch (e) { console.error(e); }
+    const box = $('#preview'); if (!box || route().id !== r.id) return;
+    const signInBar = `<p class="footnote" style="text-align:center">Already on Vnua-connect? <button class="link-btn" data-action="preview-go" data-v="signin">Sign in</button></p>`;
+    if (!data) { box.innerHTML = `<div class="empty"><h2>This link isn’t available</h2><p>The ${r.name} may be private, still forming, or removed.</p>
+      <button class="btn primary" style="max-width:260px;margin:16px auto 0" data-action="preview-go" data-v="signin">Sign in to Vnua-connect</button></div>`; return; }
+    if (r.name === 'club') {
+      const c = data, ne = c.next_event;
+      box.innerHTML = `<div class="stack-l" style="padding-top:24px">
+        <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:30px;font-weight:800">${esc(c.name)}</h1>
+          <p class="muted">${esc(c.blurb)}</p>
+          <div class="badges">${badge(c.interest)}${badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${badge(plural(c.members, 'member'))}</div></div>
+        <div class="card stack"><button class="btn primary" data-action="preview-go" data-v="join" data-id="${c.id}" data-name="${esc(c.name)}">Join ${esc(c.name)}</button>
+          <button class="btn secondary" data-action="preview-go" data-v="help" data-id="${c.id}" data-name="${esc(c.name)}">Help build this group</button>
+          <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email. No password.</p></div>
+        ${ne ? `<div class="stack"><div class="section-header">Next up</div><div class="card"><div class="event-title">${esc(ne.title)}</div>
+          <div class="muted" style="font-size:15px">${esc(fmt.full(new Date(ne.starts_at)))}${ne.location ? ' · ' + esc(ne.location) : ''}</div></div></div>` : ''}
+        ${c.about ? `<div class="card stack"><div class="section-header">About</div><p>${esc(c.about)}</p></div>` : ''}
+        ${c.officers.length ? `<div class="card stack"><div class="section-header">E-board</div>${c.officers.map((o) => `<div class="row">${avatar(o.name, 36)}<div><strong>${esc(o.name)}</strong> <span class="footnote">· ${esc(o.title || 'Officer')}</span></div></div>`).join('')}</div>` : ''}
+        ${signInBar}<p class="footnote" style="text-align:center">Student-run. Not affiliated with or endorsed by ${esc(c.campus || CFG.campus.name)}.</p></div>`;
+    } else {
+      const e = data, st = new Date(e.starts_at), host = e.hosts?.[0];
+      box.innerHTML = `<div class="stack-l" style="padding-top:24px">
+        <div class="stack" style="gap:8px">${e.status === 'cancelled' ? badge('Cancelled', 'warning') : e.status === 'rescheduled' ? badge('Rescheduled', 'warning') : ''}
+          <h1 style="font-size:30px;font-weight:800">${esc(e.title)}</h1>
+          <div style="color:var(--accent);font-weight:600">${esc((e.hosts || []).map((h) => h.name).join(' + '))}</div></div>
+        <dl class="card facts"><div><dt>When</dt><dd>${esc(fmt.full(st))}</dd></div>${e.location ? `<div><dt>Where</dt><dd>${esc(e.location)}</dd></div>` : ''}</dl>
+        ${newcomerHTML(e.newcomer)}
+        ${e.details ? `<p>${esc(e.details)}</p>` : ''}
+        ${e.status !== 'cancelled' ? `<div class="card stack"><button class="btn primary" data-action="preview-go" data-v="event" data-id="${e.id}" data-name="${esc(e.title)}">RSVP</button>
+          ${host ? `<a class="btn secondary" href="#/club/${host.id}">About ${esc(host.name)}</a>` : ''}
+          <p class="footnote">You’ll sign in with your ${esc(CFG.campus.name)} email. No password.</p></div>` : ''}
+        ${signInBar}</div>`;
+    }
+  }
+
   // ───────────── Sign in (6-digit code) ─────────────
   function signInView() {
     const s = S.signin;
@@ -247,7 +317,10 @@
     const intro = `<div class="stack"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
         <h1 class="large-title" style="margin:0">Vnua-connect</h1>
         <p class="muted">Find new student clubs at ${esc(CFG.campus.name)}, join or start one, and check in at events.</p></div>`;
-    if (!s.sent) return `<main class="screen no-tabs narrow"><div class="stack-l" style="padding-top:48px">${intro}
+    const it = peekIntent();
+    const ctx = it ? `<div class="card notice-card"><strong>${it.type === 'event' ? 'RSVP to' : it.type === 'help' ? 'Help build' : 'Join'} ${esc(it.name || '')}</strong><span class="muted">Sign in first. It takes a minute, and we’ll bring you right back.</span></div>` : '';
+    const backBtn = s.show ? '<div class="topbar"><button class="back" data-action="preview-back">‹ Back</button></div>' : '';
+    if (!s.sent) return `<main class="screen no-tabs narrow">${backBtn}<div class="stack-l" style="padding-top:${backBtn ? 8 : 48}px">${ctx}${intro}
       <form id="signin" class="stack" novalidate>
         <label class="field"><span>School email</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email"
           autocapitalize="off" spellcheck="false" placeholder="you@pride.hofstra.edu" value="${esc(s.email)}" required></label>
@@ -350,6 +423,8 @@
         </div>
         <p class="footnote">Officers of clubs you join always see your name and school email, the same as a club roster.</p>
       </div>${nav('Save profile')}`;
+    else if (peekIntent()) body = `<div class="stack-l ob-hero"><h1 class="large-title" style="margin:0">You’re all set${o.name ? ', ' + esc(o.name.split(' ')[0]) : ''}.</h1>
+        <button class="card choice-card" data-action="ob-finish" data-v="intent"><strong>Continue to ${esc(peekIntent().name || 'where you were')}</strong><span class="muted">Pick up where you left off.</span></button></div>`;
     else body = `<div class="stack-l ob-hero"><h1 class="large-title" style="margin:0">You’re all set${o.name ? ', ' + esc(o.name.split(' ')[0]) : ''}.</h1>
         <p class="muted" style="font-size:19px">What do you want to do first?</p>
         <button class="card choice-card" data-action="ob-finish" data-v="join"><strong>Join a club</strong><span class="muted">See clubs that match ${o.interests.length ? esc(o.interests.join(', ')) : 'what you like'}.</span></button>
@@ -418,8 +493,12 @@
     const memberCard = m ? `<div class="card stack">
         ${m.status === 'pending' ? `<p class="notice warning">Join request sent. An officer will review it.</p>`
           : `<p style="color:var(--success);font-weight:600">${m.role === 'officer' ? `You’re the ${esc(m.officer_title || 'officer')}` : `You’re ${m.role === 'founding' ? 'a founding member' : 'a member'}`}</p>`}
-        <label class="field"><span>Notifications from this club</span><select class="input" data-change="notify" data-club="${c.id}">
-          ${NOTIFY.map(([k, v]) => `<option value="${k}" ${m.notify === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        ${m.status === 'active' ? `<div class="stack" data-mem-card="${c.id}">
+          <label class="field"><span>How involved</span><select class="input" data-mem="involvement">${INVOLVE.map(([k, v]) => `<option value="${k}" ${m.involvement === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label class="field"><span>Notifications from this club</span><select class="input" data-mem="notify">
+            ${NOTIFY.map(([k, v]) => `<option value="${k}" ${m.notify === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          ${m.role !== 'officer' ? `<label class="toggle"><span class="spacer"><span style="font-weight:600">Count me for the recognition request</span><br><span class="footnote">Officers may include your name and school email.</span></span>
+            <input type="checkbox" role="switch" data-mem="recognition" ${m.recognition_ok ? 'checked' : ''}></label>` : ''}</div>` : ''}
         <button class="link-btn danger" data-action="leave" data-club="${c.id}" style="justify-self:start">${m.status === 'pending' ? 'Cancel request' : 'Leave club'}</button></div>`
       : invite ? '' : `<div class="card stack"><button class="btn primary" data-action="join" data-club="${c.id}">${c.requires_approval ? 'Request to join' : 'Join club'}</button>
         ${c.requires_approval ? '<p class="footnote">Officers approve new members for this club.</p>' : ''}</div>`;
@@ -440,11 +519,12 @@
         ${memberCard}
         ${officer ? `<div class="officer-actions"><a class="btn primary" href="#/dash/${c.id}">Officer dashboard</a>
           <button class="btn secondary" data-action="new-event" data-club="${c.id}">New event</button>
-          <button class="btn secondary" data-action="announce" data-club="${c.id}">Announcement</button></div>
+          <div class="row"><button class="btn secondary" data-action="new-poll" data-club="${c.id}">Find a time</button><button class="btn secondary" data-action="announce" data-club="${c.id}">Announcement</button></div>
+          ${c.is_published ? `<button class="btn secondary" data-action="share" data-club="${c.id}">Share the club link</button>` : ''}</div>
           ${c.requires_approval ? `<div class="card stack" id="join-requests"><div class="section-header">Join requests</div><p class="footnote">Loading…</p></div>` : ''}` : ''}
         ${c.about || c.affiliation ? `<div class="card stack"><div class="section-header">About</div>${c.about ? `<p>${esc(c.about)}</p>` : ''}${c.affiliation ? `<p class="footnote">${esc(c.affiliation)}</p>` : ''}</div>` : ''}
         ${c.officers.length ? `<div class="stack"><div class="section-header">E-board</div><div class="card people">${officers}</div></div>` : ''}
-        ${isMember(c.id) ? `<div class="stack" id="leaderboard"></div>` : ''}
+        ${isMember(c.id) ? `<div class="stack" id="polls"></div><div class="stack" id="leaderboard"></div>` : ''}
         <div class="stack"><div class="section-header">Upcoming</div>${upcoming.map(eventRow).join('') || '<p class="muted" style="font-size:15px">Nothing scheduled yet.</p>'}</div>
         ${past.length ? `<div class="stack"><div class="section-header">Past events</div>${past.map(eventRow).join('')}</div>` : ''}
       </div>`;
@@ -471,6 +551,18 @@
   }
   after.club = async (id) => {
     if (isMember(id)) {
+      const [polls, votes] = await Promise.all([
+        run(() => q(sb.from('polls').select('*, poll_slots(*)').eq('club_id', id).is('closed_at', null).gt('deadline', new Date().toISOString()))),
+        run(() => q(sb.from('poll_votes').select('*').eq('user_id', S.user.id))),
+      ]);
+      const pbox = $('#polls');
+      if (pbox && polls?.length) {
+        const mine = Object.fromEntries((votes || []).map((v) => [v.slot_id, v.answer]));
+        pbox.innerHTML = `<div class="section-header">When works for you?</div>${polls.map((p) => `<div class="card stack"><strong>${esc(p.title)}</strong>
+          <p class="footnote">Reply by ${esc(fmt.full(new Date(p.deadline)))}. Only totals are shared with officers.</p>
+          ${p.poll_slots.sort((a, b) => a.starts_at.localeCompare(b.starts_at)).map((sl) => `<div class="slot-row"><span class="spacer" style="font-weight:600">${esc(fmt.full(new Date(sl.starts_at)))}</span>
+            <div class="vote segmented" role="group" aria-label="Can you make it?">${[['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']].map(([v, l]) => `<button data-action="vote" data-slot="${sl.id}" data-v="${v}" aria-pressed="${mine[sl.id] === v}">${l}</button>`).join('')}</div></div>`).join('')}</div>`).join('')}`;
+      }
       const rows = await run(() => rpc('club_leaderboard', { p_club: id }));
       const box = $('#leaderboard');
       if (rows && box) box.innerHTML = rows.length ? `<div class="section-header">Most involved</div><div class="card">${rows.slice(0, 10).map((r) =>
@@ -587,7 +679,7 @@
   }
 
   // ───────────── Officer dashboard ─────────────
-  const dash = { tab: 'members', data: null };
+  const dash = { tab: 'members', filter: 'all', data: null, tasks: [], polls: [], results: {}, requests: 0 };
   function dashView(id) {
     const c = club(id);
     if (!c || !isOfficer(id)) return `${back(`#/club/${id}`, 'Club')}</div><div class="empty"><h2>Officers only</h2><p>Only this club’s officers can see its dashboard.</p></div>`;
@@ -595,65 +687,146 @@
       <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px">Officer dashboard</h1><p class="muted" style="font-size:15px;margin-bottom:16px">${esc(c.name)} · every officer sees this</p>
       <div id="dash-body"><div class="spinner" style="margin:40px auto"></div></div>`;
   }
-  const supportersOf = (members) => members.filter((m) => !m.is_officer && m.attended > 0).slice(0, RECOGNITION_GOAL);
+  // Top supporters = members who said yes to being counted for recognition, ranked by check-ins. E-board never included.
+  const supportersOf = (members) => members.filter((m) => !m.is_officer && m.recognition_ok).slice(0, RECOGNITION_GOAL);
+  const DAY = 864e5;
+  /** Things that need an officer's attention, each with a way to deal with it. Only facts, no guesses. */
+  function actionItems(id) {
+    const c = club(id), d = dash.data, now = Date.now(), items = [];
+    const item = (text, btn = '') => items.push(`<div class="todo"><span class="spacer">${text}</span>${btn}</div>`);
+    const inv = clubInvites(id);
+    CORE.forEach((t) => {
+      if (c.officers.some((o) => o.title.toLowerCase() === t.toLowerCase())) return;
+      const i = inv.find((x) => x.position.toLowerCase() === t.toLowerCase());
+      if (!i) item(`No ${esc(t.toLowerCase())} yet`, `<button class="btn primary small" data-action="invite" data-club="${id}" data-v="${t}">Invite</button>`);
+      else if (now - new Date(i.created_at) > 3 * DAY) item(`${esc(i.email)} hasn’t answered the ${esc(t.toLowerCase())} invite (${fmt.rel(new Date(i.created_at))})`, `<a class="btn secondary small" href="#/club/${id}">Manage</a>`);
+    });
+    if (dash.requests) item(`${plural(dash.requests, 'join request')} waiting`, `<a class="btn secondary small" href="#/club/${id}">Review</a>`);
+    const upcoming = d.events.filter((e) => e.status !== 'cancelled' && new Date(e.starts_at) > now);
+    upcoming.filter((e) => new Date(e.starts_at) - now < 14 * DAY).forEach((e) => {
+      if (!e.location) item(`<strong>${esc(e.title)}</strong> has no location`, `<button class="btn secondary small" data-action="edit-event" data-id="${e.id}">Add</button>`);
+      else if (!e.has_newcomer) item(`Add “First time?” info to <strong>${esc(e.title)}</strong>`, `<button class="btn secondary small" data-action="edit-event" data-id="${e.id}">Add</button>`);
+    });
+    const followed = new Set(dash.tasks.map((t) => t.event_id).filter(Boolean));
+    d.events.filter((e) => e.status !== 'cancelled' && new Date(e.starts_at) < now && now - new Date(e.starts_at) < 14 * DAY && !followed.has(e.id))
+      .forEach((e) => item(`What should happen after <strong>${esc(e.title)}</strong>?`, `<button class="btn secondary small" data-action="add-task" data-club="${id}" data-event="${e.id}">Follow up</button>`));
+    dash.tasks.filter((t) => !t.done_at && t.due_on && new Date(t.due_on + 'T23:59') - now < 2 * DAY).forEach((t) =>
+      item(`${new Date(t.due_on + 'T23:59') < now ? 'Overdue' : 'Due soon'}: ${esc(t.title)}${t.owner_id ? ` · ${esc(ownerName(id, t.owner_id))}` : ''}`,
+        `<button class="btn secondary small" data-action="task-done" data-id="${t.id}" data-v="1">Done</button>`));
+    dash.polls.filter((p) => !p.closed_at && new Date(p.deadline) < now).forEach((p) =>
+      item(`Replies are in for “${esc(p.title)}”`, `<button class="btn secondary small" data-action="dash-tab" data-v="polls">Pick a time</button>`));
+    if (!upcoming.length && !dash.polls.some((p) => !p.closed_at)) item('Nothing scheduled yet',
+      `<button class="btn secondary small" data-action="new-event" data-club="${id}">Post event</button><button class="btn secondary small" data-action="new-poll" data-club="${id}">Find a time</button>`);
+    return items;
+  }
+  const ownerName = (clubId, uid) => club(clubId)?.officers.find((o) => o.user_id === uid)?.name || 'Unassigned';
   function dashBody(id) {
-    const d = dash.data, c = club(id), now = Date.now();
+    const d = dash.data, now = Date.now();
     const members = d.members.filter((m) => !m.is_officer), eboard = d.members.filter((m) => m.is_officer);
     const past = d.events.filter((e) => e.status !== 'cancelled' && new Date(e.starts_at) < now);
     const turnout = past.length ? Math.round(past.reduce((s, e) => s + e.checked_in, 0) / past.length) : 0;
     const rs = past.reduce((s, e) => s + e.rsvps, 0), sh = past.reduce((s, e) => s + e.showed, 0);
     const rated = past.filter((e) => e.rating_avg != null);
     const rating = rated.length ? (rated.reduce((s, e) => s + Number(e.rating_avg) * e.ratings, 0) / rated.reduce((s, e) => s + e.ratings, 0)).toFixed(1) : '–';
+    const consented = members.filter((m) => m.recognition_ok);
     const supporters = supportersOf(d.members), supporterIds = new Set(supporters.map((m) => m.user_id));
-    const fading = members.filter((m) => m.fading && !(m.nudged_at && now - new Date(m.nudged_at) < 30 * 864e5));
-    const goal = Math.min(100, Math.round((members.length / RECOGNITION_GOAL) * 100));
+    const fading = members.filter((m) => m.fading && !(m.nudged_at && now - new Date(m.nudged_at) < 30 * DAY));
+    const goal = Math.min(100, Math.round((consented.length / RECOGNITION_GOAL) * 100));
+    const todo = actionItems(id);
     let rank = 0, prev = null;
     const ranked = members.map((m, i) => { if (m.attended !== prev) { rank = i + 1; prev = m.attended; } return { ...m, rank }; });
+    const skills = [...new Set(members.flatMap((m) => m.help_with || []))].sort();
+    const F = { all: () => true, consent: (m) => m.recognition_ok, organize: (m) => m.involvement === 'organize',
+      recent: (m) => m.attended_30 > 0, new: (m) => m.first_seen && now - new Date(m.first_seen) < 30 * DAY, quiet: (m) => m.fading };
+    const filt = dash.filter.startsWith('help:') ? (m) => (m.help_with || []).includes(dash.filter.slice(5)) : F[dash.filter] || F.all;
+    const shown = ranked.filter(filt);
     const memberRow = (m) => `<div class="list-row member">${m.is_officer ? avatar(m.name, 36) : `<span class="rank">${m.rank}</span>`}
       <div class="spacer"><div style="font-weight:600">${esc(m.name)}${m.is_officer ? ` <span class="footnote">· ${esc(m.title || 'Officer')}</span>` : ''}</div>
         <div class="footnote">${m.eligible ? `${m.attended} of ${plural(m.eligible, 'event')} since joining` : plural(m.attended, 'event')}${m.last_seen ? ` · last seen ${fmt.short(new Date(m.last_seen))}` : ''}</div>
-        <div class="badges">${supporterIds.has(m.user_id) ? badge('Top supporter', 'success') : ''}${m.fading ? badge('Hasn’t come lately', 'warning') : ''}${m.busy ? badge('Busy, still in') : ''}${m.nudged_at ? badge(`Checked in with ${fmt.rel(new Date(m.nudged_at))}`) : ''}</div></div>
+        <div class="badges">${supporterIds.has(m.user_id) ? badge('Top supporter', 'success') : ''}${!m.is_officer && m.recognition_ok ? badge('Counts for recognition') : ''}${m.involvement === 'organize' && !m.is_officer ? badge('Wants to help organize', 'accent') : ''}
+          ${(m.help_with || []).map((h) => badge(h)).join('')}${m.fading ? badge('Missed the last 3', 'warning') : ''}${m.busy ? badge('Busy, still in') : ''}${m.nudged_at ? badge(`Checked in with ${fmt.rel(new Date(m.nudged_at))}`) : ''}</div></div>
       ${m.email ? `<a class="icon-btn" href="mailto:${esc(m.email)}" aria-label="Email ${esc(m.name)}">${icon.mail}</a>` : ''}</div>`;
     const evRow = (e) => { const st = new Date(e.starts_at); const up = st > now;
       return `<a class="list-row" href="#/event/${e.id}" style="color:inherit;text-decoration:none"><div class="date-chip"><span class="dow">${fmt.dow(st)}</span><span class="day">${st.getDate()}</span></div>
       <div class="spacer"><div style="font-weight:600">${esc(e.title)}${e.status === 'cancelled' ? ' <span class="footnote">(cancelled)</span>' : ''}</div>
-      <div class="footnote">${up ? `${plural(e.rsvps, 'RSVP')} so far` : `${e.checked_in} checked in · ${plural(e.rsvps, 'RSVP')} · ${pct(e.showed, e.rsvps)} showed up`}</div>
+      <div class="footnote">${up ? `${plural(e.rsvps, 'RSVP')} so far` : `${e.checked_in} checked in · ${plural(e.rsvps, 'RSVP')} · ${pct(e.showed, e.rsvps)} of RSVPs came`}</div>
       ${!up && e.status !== 'cancelled' ? `<div class="footnote">${e.rating_avg != null ? `★ ${e.rating_avg} from ${plural(e.ratings, 'rating')}` : e.ratings ? `${e.ratings}/3 ratings needed to show an average` : 'No ratings yet'}</div>` : ''}</div></a>`; };
     const seg = (v, l) => `<button data-action="dash-tab" data-v="${v}" aria-pressed="${dash.tab === v}">${l}</button>`;
+    const chip = (v, l) => `<button class="chip" data-action="dash-filter" data-v="${esc(v)}" aria-pressed="${dash.filter === v}">${esc(l)}</button>`;
+    const tab = {
+      members: () => `<div class="chips" role="group" aria-label="Filter members">${chip('all', 'Everyone')}${chip('consent', 'Counts for recognition')}${chip('organize', 'Wants to help organize')}
+          ${chip('recent', 'Came in last 30 days')}${chip('new', 'First time in last 30 days')}${chip('quiet', 'Missed the last 3')}${skills.map((k) => chip('help:' + k, 'Can help: ' + k)).join('')}</div>
+        <div class="card">${shown.map(memberRow).join('') || `<p class="footnote" style="padding:12px 0">${members.length ? 'No one matches this filter.' : 'No members yet. Share the club link to get your first ones.'}</p>`}</div>
+        <p class="footnote">${plural(shown.length, 'member')} · ranked by check-ins. A member who came once can still be a real supporter, so use the filters, not just the rank.</p>
+        <div class="section-header">E-board · not ranked</div><div class="card">${eboard.map(memberRow).join('')}</div>`,
+      events: () => `<div class="card">${d.events.map(evRow).join('') || '<p class="footnote" style="padding:12px 0">No events yet.</p>'}</div>
+        <p class="footnote">Ratings are anonymous. Officers only see an event’s average once 3 people have rated it.</p>`,
+      tasks: () => { const open = dash.tasks.filter((t) => !t.done_at), done = dash.tasks.filter((t) => t.done_at).slice(0, 10);
+        const row = (t) => `<div class="list-row task${t.done_at ? ' done' : ''}"><button class="check" data-action="task-done" data-id="${t.id}" data-v="${t.done_at ? 0 : 1}" aria-label="${t.done_at ? 'Mark not done' : 'Mark done'}" aria-pressed="${!!t.done_at}">✓</button>
+          <div class="spacer"><div style="font-weight:600">${esc(t.title)}</div><div class="footnote">${esc(ownerName(id, t.owner_id))}${t.due_on ? ` · due ${fmt.short(new Date(t.due_on + 'T12:00'))}` : ''}${t.event_id && event(t.event_id) ? ` · ${esc(event(t.event_id).title)}` : ''}</div></div>
+          <button class="link-btn" data-action="edit-task" data-id="${t.id}">Edit</button></div>`;
+        return `<button class="btn primary" data-action="add-task" data-club="${id}">Add a task</button>
+          <div class="card">${open.map(row).join('') || '<p class="footnote" style="padding:12px 0">No open tasks. Add follow-ups after events so nothing slips.</p>'}</div>
+          ${done.length ? `<details class="card"><summary><strong>Done</strong> <span class="footnote">· ${done.length}</span></summary>${done.map(row).join('')}</details>` : ''}`; },
+      polls: () => `<button class="btn primary" data-action="new-poll" data-club="${id}">Find a time</button>
+        ${dash.polls.map((p) => { const r = dash.results[p.id]; const best = r ? Math.max(...r.slots.map((x) => x.yes + x.maybe / 2)) : 0;
+          return `<div class="card stack"><div class="row"><strong class="spacer">${esc(p.title)}</strong>${p.event_id ? badge('Scheduled', 'success') : p.closed_at ? badge('Closed') : new Date(p.deadline) < now ? badge('Replies in', 'warning') : badge(`Open until ${fmt.short(new Date(p.deadline))}`)}</div>
+            ${r ? `<p class="footnote">${r.responders} of ${plural(r.members, 'member')} replied. Individual answers stay private.</p>
+              ${r.slots.map((x) => `<div class="slot-row"><div class="spacer"><div style="font-weight:600">${esc(fmt.full(new Date(x.starts_at)))}</div>
+                <div class="footnote">${x.yes} yes · ${x.maybe} maybe · ${x.no} no</div><div class="bar"><span style="width:${r.responders ? Math.round(((x.yes + x.maybe / 2) / r.responders) * 100) : 0}%"></span></div></div>
+                ${!p.closed_at ? `<button class="btn ${x.yes + x.maybe / 2 === best && best > 0 ? 'primary' : 'secondary'} small" data-action="schedule-poll" data-poll="${p.id}" data-slot="${x.id}">Pick</button>` : ''}</div>`).join('')}` : ''}
+            ${p.event_id ? `<a class="link-btn" href="#/event/${p.event_id}">View the event</a>` : !p.closed_at ? `<button class="link-btn danger" data-action="close-poll" data-id="${p.id}" style="justify-self:start">Close without scheduling</button>` : ''}</div>`; }).join('')
+          || '<p class="footnote">Not sure when people are free? Offer a few times, members answer yes/maybe/no, and you turn the best one into an event.</p>'}`,
+    };
     return `<div class="stack-l">
+      <div class="stack"><div class="section-header">Needs attention${todo.length ? ' · ' + todo.length : ''}</div>
+        <div class="card todos">${todo.join('') || '<p class="footnote" style="padding:8px 0">Nothing needs attention right now.</p>'}</div></div>
       <div class="stats">${stat(members.length, 'Members', 'not counting e-board')}${stat(past.length ? turnout : '–', 'Avg turnout', plural(past.length, 'past event'))}
         ${stat(rs ? pct(sh, rs) : '–', 'RSVPs who came', rs ? `${sh} of ${rs}` : 'no RSVPs yet')}${stat(rating, 'Avg rating', rated.length ? 'anonymous' : 'needs 3+ per event')}</div>
       <div class="card stack recog">
-        <div class="row"><strong class="spacer">Official recognition</strong><span class="footnote">${members.length}/${RECOGNITION_GOAL} members</span></div>
-        <div class="bar" role="progressbar" aria-valuenow="${members.length}" aria-valuemin="0" aria-valuemax="${RECOGNITION_GOAL}"><span style="width:${goal}%"></span></div>
-        <p class="footnote">${members.length >= RECOGNITION_GOAL ? 'You have enough members to apply.' : `${RECOGNITION_GOAL - members.length} more member${RECOGNITION_GOAL - members.length === 1 ? '' : 's'} to reach ${RECOGNITION_GOAL}.`}
-          Your top supporters are the members who check in most (e-board not counted). CC them when you send the request.</p>
+        <div class="row"><strong class="spacer">Official recognition</strong><span class="footnote">${consented.length}/${RECOGNITION_GOAL} supporters</span></div>
+        <div class="bar" role="progressbar" aria-valuenow="${consented.length}" aria-valuemin="0" aria-valuemax="${RECOGNITION_GOAL}"><span style="width:${goal}%"></span></div>
+        <p class="footnote">${members.length} member${members.length === 1 ? '' : 's'}, ${consented.length} said yes to being counted (e-board not included).
+          ${consented.length >= RECOGNITION_GOAL ? 'That’s enough to apply.' : `${RECOGNITION_GOAL - consented.length} more to reach ${RECOGNITION_GOAL}.`}
+          Members can switch this on from the club page. This tracks your count; the university decides recognition.</p>
         <div class="officer-actions">
-          <button class="btn primary" data-action="recog-mail" data-club="${id}">Draft the request email</button>
-          <button class="btn secondary" data-action="copy-emails" data-v="supporters">Copy top supporters (${supporters.length})</button>
+          <button class="btn primary" data-action="recog-mail" data-club="${id}" ${supporters.length ? '' : 'disabled'}>Draft the request email</button>
+          <button class="btn secondary" data-action="copy-emails" data-v="supporters">Copy supporters’ emails (${supporters.length})</button>
           <button class="btn secondary" data-action="copy-emails" data-v="all">Copy all member emails (${d.members.length})</button></div></div>
       ${fading.length ? `<div class="card stack nudge"><strong>${plural(fading.length, 'member')} missed the last 3 events</strong>
-        <p class="footnote">Send a friendly check-in. They can say they’re still in, that they’re busy but want to stay, or leave. No hard feelings either way. Each person gets this at most once a month.</p>
+        <p class="footnote">That’s all we know. They might just be busy. Send a friendly check-in: they can say they’re still in, that they’re busy but want to stay, or leave. Each person gets this at most once a month.</p>
         <div class="badges">${fading.map((m) => badge(m.name)).join('')}</div>
         <button class="btn secondary" data-action="nudge" data-club="${id}" data-users="${fading.map((m) => m.user_id).join(',')}">Send “Still interested?”</button></div>` : ''}
-      <div class="segmented" role="group" aria-label="Show">${seg('members', 'Members')}${seg('events', 'Events')}</div>
-      ${dash.tab === 'members' ? `<div class="card">${ranked.map(memberRow).join('') || '<p class="footnote" style="padding:12px 0">No members yet. Share the club page to get your first ones.</p>'}</div>
-        <div class="section-header">E-board · not ranked</div><div class="card">${eboard.map(memberRow).join('')}</div>`
-      : `<div class="card">${d.events.map(evRow).join('') || '<p class="footnote" style="padding:12px 0">No events yet.</p>'}</div>`}
-      <p class="footnote">Ratings are anonymous. Officers only see an event’s average once 3 people have rated it.</p></div>`;
+      <div class="segmented tight" role="group" aria-label="Show">${seg('members', 'Members')}${seg('events', 'Events')}${seg('tasks', 'Tasks')}${seg('polls', 'Polls')}</div>
+      ${tab[dash.tab]()}</div>`;
+  }
+  async function loadDash(id) {
+    const c = club(id);
+    const [d, tasks, polls, reqs] = await Promise.all([
+      rpc('club_insights', { p_club: id }),
+      q(sb.from('club_tasks').select('*').eq('club_id', id).order('done_at', { ascending: false, nullsFirst: true }).order('due_on', { ascending: true, nullsFirst: false })),
+      q(sb.from('polls').select('*').eq('club_id', id).order('created_at', { ascending: false }).limit(10)),
+      c?.requires_approval ? rpc('join_requests', { p_club: id }) : Promise.resolve([]),
+    ]);
+    const results = {};
+    await Promise.all(polls.filter((p) => !p.closed_at || p.event_id).slice(0, 5).map(async (p) => { results[p.id] = await rpc('poll_results', { p_poll: p.id }); }));
+    Object.assign(dash, { data: d, tasks, polls, results, requests: reqs.length, club: id });
   }
   after.dash = async (id) => {
     if (!isOfficer(id)) return;
-    const d = await run(() => rpc('club_insights', { p_club: id }));
-    if (!d || !$('#dash-body')) return;
-    dash.data = d; dash.club = id; $('#dash-body').innerHTML = dashBody(id);
+    if (dash.club !== id) Object.assign(dash, { tab: 'members', filter: 'all' });
+    const ok = await run(() => loadDash(id).then(() => true));
+    if (!ok || !$('#dash-body') || route().id !== id) return;
+    $('#dash-body').innerHTML = dashBody(id);
   };
+  const redrawDash = async () => { if (route().name === 'dash' && dash.club) { await run(() => loadDash(dash.club)); if ($('#dash-body')) $('#dash-body').innerHTML = dashBody(dash.club); } };
   function membersCsv(d) {
     const c = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const top = new Set(supportersOf(d.members).map((m) => m.user_id));
-    return ['name,email,major,year,role,position,events_attended,events_since_joining,rsvps,last_seen,joined,top_supporter',
-      ...d.members.map((m) => [c(m.name), c(m.email), c(m.major), c(m.class_year), m.is_officer ? 'e-board' : m.role, c(m.title),
-        m.attended, m.eligible, m.rsvps, m.last_seen ? m.last_seen.slice(0, 10) : '', m.joined_at.slice(0, 10), top.has(m.user_id) ? 'yes' : ''].join(','))].join('\n');
+    return ['name,email,major,year,role,position,involvement,counts_for_recognition,can_help_with,events_attended,events_since_joining,attended_last_30_days,rsvps,first_attended,last_attended,joined,top_supporter',
+      ...d.members.map((m) => [c(m.name), c(m.email), c(m.major), c(m.class_year), m.is_officer ? 'e-board' : m.role, c(m.title), m.involvement,
+        m.recognition_ok ? 'yes' : 'no', c((m.help_with || []).join('; ')), m.attended, m.eligible, m.attended_30, m.rsvps,
+        m.first_seen ? m.first_seen.slice(0, 10) : '', m.last_seen ? m.last_seen.slice(0, 10) : '', m.joined_at.slice(0, 10), top.has(m.user_id) ? 'yes' : ''].join(','))].join('\n');
   }
 
   // ───────────── Events ─────────────
@@ -673,7 +846,7 @@
     const e = event(id);
     if (!e) return `${back('#/events', 'Events')}</div><div class="empty"><h2>Event not found</h2></div>`;
     const going = S.rsvps.has(e.id), live = e.status !== 'cancelled', over = e.end < new Date();
-    return `${back('#/events', 'Events')}<button class="icon-btn" data-action="report" data-type="event" data-id="${e.id}" data-name="${esc(e.title)}" aria-label="Report event">⚑</button></div>
+    return `${back('#/events', 'Events')}<button class="link-btn" data-action="share-event" data-id="${e.id}">Share</button><button class="icon-btn" data-action="report" data-type="event" data-id="${e.id}" data-name="${esc(e.title)}" aria-label="Report event">⚑</button></div>
       <div class="stack-l">
         <div class="stack" style="gap:8px">${statusBadge(e) ? `<div>${statusBadge(e)}</div>` : ''}
           <h1 style="font-size:28px;font-weight:800">${esc(e.title)}</h1>
@@ -682,6 +855,7 @@
         ${!live ? '<p class="notice warning"><strong>This event was cancelled.</strong></p>' : ''}
         <dl class="card facts"><div><dt>When</dt><dd>${esc(fmt.full(e.start))} – ${esc(fmt.time(e.end))}</dd></div>
           ${e.location ? `<div><dt>Where</dt><dd>${esc(e.location)}</dd></div>` : ''}<div><dt>Organizer</dt><dd>${esc(e.organizer)}</dd></div></dl>
+        ${newcomerHTML(e.newcomer)}
         ${e.details ? `<p>${esc(e.details)}</p>` : ''}
         <div id="my-rating"></div>
         ${live && !over ? `<div class="stack">
@@ -692,6 +866,8 @@
         ${runsEvent(e) ? `<div class="stack"><div class="section-header">Officer tools</div>
           <div id="event-stats" class="stack"><div class="spinner" style="margin:12px auto"></div></div>
           <a class="btn primary" href="#/checkin/${e.id}">Run check-in</a>
+          <div class="row">${live ? `<button class="btn secondary" data-action="edit-event" data-id="${e.id}">Edit event</button>` : ''}
+            <button class="btn secondary" data-action="add-task" data-club="${e.hosts.find(isOfficer)}" data-event="${e.id}">${over ? 'Add follow-up' : 'Add a to-do'}</button></div>
           <p class="footnote">Reminders: ${e.reminders?.length ? esc(REMINDERS.filter(([m]) => e.reminders.includes(m)).map(([, l]) => l).join(', ')) + ' before' : 'none'}. A rating request goes to everyone who checked in, 15 minutes after it ends.</p>
           ${live && !over ? `<button class="btn danger" data-action="cancel-event" data-id="${e.id}">Cancel event</button>` : ''}</div>` : ''}
       </div>`;
@@ -701,11 +877,15 @@
     if (e.end < new Date() && e.status !== 'cancelled') {
       const [att, mine] = await Promise.all([
         run(() => q(sb.from('attendance').select('id').eq('event_id', id).eq('user_id', S.user.id).is('removed_at', null))),
-        run(() => rpc('my_rating', { p_event: id })),
+        run(() => rpc('my_feedback', { p_event: id })),
       ]);
       const box = $('#my-rating');
-      if (box && att?.length && Date.now() - e.end < 7 * 864e5) box.innerHTML = `<div class="card stack rate-card"><strong>${mine ? 'Your rating' : 'How was it?'}</strong>
-        ${stars(id, mine || 0, 'big')}<p class="footnote">Anonymous. Officers only see the average once 3 people have rated.</p></div>`;
+      if (box && att?.length && Date.now() - e.end < 7 * 864e5) box.innerHTML = `<div class="card stack rate-card" data-stars="${mine?.stars || 0}"><strong>${mine ? 'Your rating' : 'How was it?'}</strong>
+        ${stars(id, mine?.stars || 0, 'big')}
+        <label class="field"><span>What should they keep? <span class="muted" style="font-weight:400">(optional)</span></span><textarea class="input short" id="fb-keep" maxlength="500">${esc(mine?.keep || '')}</textarea></label>
+        <label class="field"><span>What should change? <span class="muted" style="font-weight:400">(optional)</span></span><textarea class="input short" id="fb-change" maxlength="500">${esc(mine?.change || '')}</textarea></label>
+        <button class="btn secondary" data-action="feedback" data-event="${id}">Send feedback</button>
+        <p class="footnote">Officers never see who wrote what. Averages and comments only show once 3 people have responded.</p></div>`;
     }
     if (!runsEvent(e)) return;
     const s = await run(() => rpc('event_stats', { p_event: id }));
@@ -713,6 +893,10 @@
     box.innerHTML = `<div class="stats">${stat(s.rsvps, 'RSVPs')}${stat(s.checked_in, 'Checked in')}${stat(pct(s.showed, s.rsvps), 'RSVPs who came', `${s.showed} of ${s.rsvps}`)}
       ${stat(s.rating_avg != null ? '★ ' + s.rating_avg : '–', 'Rating', s.rating_avg != null ? plural(s.ratings, 'rating') : `${s.ratings}/3 needed`)}</div>
       ${s.rating_dist ? `<div class="card dist">${s.rating_dist.slice().reverse().map((n, i) => `<div class="row"><span class="footnote" style="width:28px">${5 - i}★</span><div class="bar spacer"><span style="width:${pct(n, s.ratings)}"></span></div><span class="footnote" style="width:24px;text-align:right">${n}</span></div>`).join('')}</div>` : ''}
+      <p class="footnote">${plural(s.first_timers, 'first-timer')} · ${plural(s.guests, 'guest')} · ${plural(Math.max(0, s.checked_in - s.showed - s.guests), 'walk-in')} who didn’t RSVP</p>
+      ${s.keep?.length || s.change?.length ? `<div class="card stack">${s.keep?.length ? `<div><div class="section-header">Keep</div><ul class="fb">${s.keep.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
+        ${s.change?.length ? `<div><div class="section-header">Change</div><ul class="fb">${s.change.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}</div>`
+        : s.ratings && s.ratings < 3 ? '<p class="footnote">Written feedback shows once 3 people respond.</p>' : ''}
       ${s.rsvp_list.length ? `<details class="card"><summary><strong>RSVP list</strong> <span class="footnote">· ${s.rsvp_list.length}</span></summary>${s.rsvp_list.map((r) =>
         `<div class="list-row"><span class="spacer">${esc(r.name)}</span>${r.checked_in ? '<span class="badge success">Came</span>' : '<span class="footnote">Not checked in</span>'}</div>`).join('')}</details>` : ''}`;
   };
@@ -868,6 +1052,7 @@
           <div class="footnote">${esc([p.major, p.class_year].filter(Boolean).join(' · '))}</div></div>
         <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">⚑</button></div>
       ${p.bio ? `<p style="margin-top:8px">${esc(p.bio)}</p>` : ''}
+      ${p.help_with?.length ? `<p class="footnote" style="margin-top:6px">Can help with: ${esc(p.help_with.join(', '))}</p>` : ''}${p.looking_for?.length ? `<p class="footnote">Looking for: ${esc(p.looking_for.join(', '))}</p>` : ''}
       <div class="badges">${p.interests.map((i) => badge(i, p.shared.includes(i) ? 'accent' : '')).join('')}${p.common_clubs ? badge(`${plural(p.common_clubs, 'club')} in common`, 'success') : ''}</div>
       ${contactButtons(p) || '<p class="footnote" style="margin-top:8px">Hasn’t shared contact info yet. You might meet at a club event.</p>'}</div>`).join('')
       || `<div class="empty"><h2>No one yet</h2><p>As more students join with ${S.user.interests?.length ? 'your interests' : 'interests set'}, they’ll show up here.</p><button class="btn secondary" style="max-width:240px;margin:16px auto 0" data-action="edit-profile">Edit interests</button></div>`;
@@ -875,7 +1060,7 @@
 
   // ───────────── Inbox ─────────────
   const KIND = { reminder: 'Reminder', new_event: 'New event', cancelled: 'Cancelled', rating: 'Rate it', nudge: 'Check-in', invite: 'Officer invite',
-    approved: 'Approved', team_complete: 'Officer team', announcement: 'Announcement' };
+    approved: 'Approved', team_complete: 'Officer team', announcement: 'Announcement', event_changed: 'Changed', poll: 'When works?', task: 'Task' };
   function inboxView() {
     const inv = myInvites();
     const items = S.notifs.filter((n) => !(n.kind === 'invite' && inv.some((i) => n.dedupe === 'inv:' + i.id)));
@@ -924,6 +1109,7 @@
         <p class="footnote">${esc(u.email)}</p></div></div>
         ${u.bio ? `<p>${esc(u.bio)}</p>` : ''}
         ${u.interests?.length ? `<div class="badges">${u.interests.map((i) => badge(i, 'accent')).join('')}</div>` : ''}
+        ${u.help_with?.length ? `<p class="footnote">Can help with: ${esc(u.help_with.join(', '))}</p>` : ''}${u.looking_for?.length ? `<p class="footnote">Looking for: ${esc(u.looking_for.join(', '))}</p>` : ''}
         ${contactButtons({ email: u.share_email ? u.email : '', phone: u.share_phone ? u.phone : '', linkedin: u.share_linkedin ? u.linkedin : '' })}
         <button class="btn secondary" data-action="edit-profile">Edit profile</button></div>
       <div class="stack"><div class="section-header">Involvement record</div><div class="card" id="involvement">
@@ -964,11 +1150,15 @@
       <label class="field"><span>A line about you</span><input class="input" name="bio" value="${esc(u.bio)}" maxlength="280"></label>
       <label class="field"><span>Phone</span><input class="input" name="phone" type="tel" value="${esc(u.phone)}" maxlength="30"></label>
       <label class="field"><span>LinkedIn</span><input class="input" name="linkedin" type="url" autocapitalize="off" value="${esc(u.linkedin)}" maxlength="200" placeholder="linkedin.com/in/your-name"></label>
+      <div class="field"><span>I can help with <span class="muted" style="font-weight:400">(up to 6)</span></span><div class="chip-wrap">${HELP.map((i) => `<label class="chip-check"><input type="checkbox" name="help" value="${esc(i)}" ${u.help_with?.includes(i) ? 'checked' : ''}><span>${esc(i)}</span></label>`).join('')}</div></div>
+      <div class="field"><span>I’m looking for <span class="muted" style="font-weight:400">(up to 4)</span></span><div class="chip-wrap">${LOOKING.map((i) => `<label class="chip-check"><input type="checkbox" name="looking" value="${esc(i)}" ${u.looking_for?.includes(i) ? 'checked' : ''}><span>${esc(i)}</span></label>`).join('')}</div></div>
       <div class="card toggles">${toggle('share_email', 'Show my school email', '', u.share_email)}${toggle('share_phone', 'Show my phone number', '', u.share_phone)}${toggle('share_linkedin', 'Show my LinkedIn', '', u.share_linkedin)}</div>
       <p class="footnote">Shown to students in People and, if you’re an officer, on your club’s page.</p></div>`,
     { action: 'Save', onSubmit: async (fd) => {
-      const interests = fd.getAll('interests');
+      const interests = fd.getAll('interests'), help = fd.getAll('help'), looking = fd.getAll('looking');
       if (interests.length > 3) { toast('Pick up to 3 interests.', true); return false; }
+      if (help.length > 6 || looking.length > 4) { toast('Pick fewer options.', true); return false; }
+      if (!(await run(() => rpc('save_profile_extras', { p_help_with: help, p_looking_for: looking }).then(() => true)))) return false;
       const ok = await run(() => saveProfile({ name: (fd.get('name') || '').trim(), pronouns: (fd.get('pronouns') || '').trim(), major: (fd.get('major') || '').trim(),
         class_year: fd.get('class_year') || '', interests, bio: (fd.get('bio') || '').trim(), phone: (fd.get('phone') || '').trim(),
         linkedin: (fd.get('linkedin') || '').trim(), share_email: fd.get('share_email') === 'on', share_phone: fd.get('share_phone') === 'on',
@@ -976,7 +1166,8 @@
       if (ok) { await run(loadAll); toast('Profile saved'); render(); } return !!ok;
     } });
     form.addEventListener('change', (e) => {
-      if (e.target.name === 'interests' && form.querySelectorAll('input[name=interests]:checked').length > 3) { e.target.checked = false; toast('Up to 3. Unpick one first.', true); }
+      const cap = { interests: 3, help: 6, looking: 4 }[e.target.name];
+      if (cap && form.querySelectorAll(`input[name=${e.target.name}]:checked`).length > cap) { e.target.checked = false; toast(`Up to ${cap}. Unpick one first.`, true); }
     });
   }
 
@@ -998,21 +1189,24 @@
   function closeSheet() { $('#sheet-root').innerHTML = ''; document.body.style.overflow = ''; }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sheet-root').innerHTML) closeSheet(); });
 
-  function confirmSheet(title, message, actionLabel, fn) {
+  function confirmSheet(title, message, actionLabel, fn, tone = 'danger') {
     openSheet(title, `<div class="stack" style="padding:8px 0"><p>${esc(message)}</p>
-      <button class="btn primary" type="submit" style="background:var(--danger)">${esc(actionLabel)}</button></div>`,
+      <button class="btn primary" type="submit" ${tone === 'danger' ? 'style="background:var(--danger)"' : ''}>${esc(actionLabel)}</button></div>`,
       { onSubmit: async () => (await run(fn)) !== undefined });
   }
   const radios = (name, options, selected) => `<div class="card" style="padding-top:0;padding-bottom:0">${options.map(([v, label, sub]) => `<label class="choice">
     <input type="radio" name="${name}" value="${esc(v)}" ${v === selected ? 'checked' : ''}><span><span style="font-weight:600">${esc(label)}</span>${sub ? `<br><span class="footnote">${esc(sub)}</span>` : ''}</span></label>`).join('')}</div>`;
 
-  function joinSheet(c) {
-    openSheet(c.name, `<div class="stack-l"><div class="stack"><div class="section-header">Join as</div>${radios('role', [
-        ['member', 'Member', ''], ['founding', 'Founding member', c.recognition === 'recognized' ? 'Help run the club day to day.' : 'You want to help get it off the ground.']], 'member')}</div>
+  function joinSheet(c, involvement = 'attend') {
+    openSheet(c.name, `<div class="stack-l"><div class="stack"><div class="section-header">How involved do you want to be?</div>${radios('involvement', INVOLVE, involvement)}</div>
       <div class="stack"><div class="section-header">Notifications</div>${radios('notify', NOTIFY, 'rsvp')}</div>
-      <p class="footnote">The club’s officers will see your name, school email, and which events you check in to.</p></div>`,
+      <label class="choice card" style="border:0"><input type="checkbox" name="recognition"><span><span style="font-weight:600">Count me as a supporter when ${esc(c.name)} applies for official recognition</span>
+        <br><span class="footnote">Officers may include your name and school email in that request. You can change this anytime.</span></span></label>
+      <p class="footnote">The club’s officers will see your name, school email, and which events you check in to. You can change all of this later.</p></div>`,
     { action: c.requires_approval ? 'Request' : 'Join', onSubmit: async (fd) => {
-      const m = await run(() => rpc('join_club', { p_club: c.id, p_role: fd.get('role'), p_contact: 'events', p_notify: fd.get('notify'), p_request: uuid() }));
+      const inv = fd.get('involvement') || 'attend';
+      const m = await run(() => rpc('join_club', { p_club: c.id, p_role: inv === 'organize' ? 'founding' : 'member', p_contact: 'events', p_notify: fd.get('notify'),
+        p_involvement: inv, p_recognition_ok: fd.get('recognition') === 'on', p_request: uuid() }));
       if (!m) return false;
       S.memberships[c.id] = { ...m, user_id: S.user.id }; toast(m.status === 'pending' ? `Request sent to ${c.name}’s officers` : `You joined ${c.name}`); render(); return true;
     } });
@@ -1098,30 +1292,83 @@
       await run(loadInbox); toast(`Sent to ${plural(n, 'person', 'people')}`); return true;
     } });
   }
-  function newEventSheet(c) {
+  function eventSheet(c, e = null) {
     const t = new Date(); t.setDate(t.getDate() + 7); t.setHours(18, 0, 0, 0);
     const local = (d) => new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const others = S.clubs.filter((x) => x.id !== c.id && isOfficer(x.id));
-    const rid = uuid();
-    openSheet(c.name, `<div class="stack-l">
-      <label class="field"><span>Event title</span><input class="input" name="title" maxlength="140" required></label>
-      <label class="field"><span>Starts</span><input class="input" name="start" type="datetime-local" value="${local(t)}" min="${local(new Date())}" required></label>
-      <label class="field"><span>Length</span><select class="input" name="duration">${[30, 45, 60, 90, 120, 180, 240].map((m) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>${m < 60 ? m + ' min' : m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : m / 60 + ' hr'}</option>`).join('')}</select></label>
-      <label class="field"><span>Where</span><input class="input" name="location" maxlength="140"></label>
-      <label class="field"><span>Details</span><textarea class="input" name="details" maxlength="2000" placeholder="What to expect, what to bring"></textarea></label>
-      <div class="field"><span>Remind people</span><div class="chip-wrap">${REMINDERS.map(([m, l]) => `<label class="chip-check"><input type="checkbox" name="rem" value="${m}" ${[1440, 120].includes(m) ? 'checked' : ''}><span>${l} before</span></label>`).join('')}</div>
+    const others = e ? [] : S.clubs.filter((x) => x.id !== c.id && isOfficer(x.id));
+    const rid = uuid(), v = e || { title: '', start: t, duration_minutes: 60, location: '', details: '', reminders: [1440, 120], newcomer: {} };
+    const nc = v.newcomer || {};
+    openSheet(e ? 'Edit event' : c.name, `<div class="stack-l">
+      <label class="field"><span>Event title</span><input class="input" name="title" maxlength="140" value="${esc(v.title)}" required></label>
+      <label class="field"><span>Starts</span><input class="input" name="start" type="datetime-local" value="${local(v.start)}" required></label>
+      <label class="field"><span>Length</span><select class="input" name="duration">${[30, 45, 60, 90, 120, 180, 240].concat([30, 45, 60, 90, 120, 180, 240].includes(v.duration_minutes) ? [] : [v.duration_minutes]).map((m) => `<option value="${m}" ${m === v.duration_minutes ? 'selected' : ''}>${m < 60 ? m + ' min' : m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : m / 60 + ' hr'}</option>`).join('')}</select></label>
+      <label class="field"><span>Where</span><input class="input" name="location" maxlength="140" value="${esc(v.location)}" placeholder="Building and room"></label>
+      <label class="field"><span>Details</span><textarea class="input" name="details" maxlength="2000" placeholder="What it is, in a sentence or two">${esc(v.details)}</textarea></label>
+      <details class="card newcomer-form" ${e && Object.keys(nc).length ? 'open' : ''}><summary><strong>“First time?” info</strong> <span class="footnote">· recommended</span></summary>
+        <p class="footnote" style="margin:8px 0 4px">Shown on the event page and on shared links, so someone new knows what to expect without having to ask.</p>
+        ${NEWCOMER.map(([k, l, ph]) => `<label class="field"><span>${esc(l)}</span><input class="input" name="nc_${k}" maxlength="300" value="${esc(nc[k] || '')}" placeholder="${esc(ph)}"></label>`).join('')}</details>
+      <div class="field"><span>Remind people</span><div class="chip-wrap">${REMINDERS.map(([m, l]) => `<label class="chip-check"><input type="checkbox" name="rem" value="${m}" ${(v.reminders || []).includes(m) ? 'checked' : ''}><span>${l} before</span></label>`).join('')}</div>
         <span class="footnote">Goes to everyone who RSVPs, plus members who want everything. Afterwards, people who checked in get asked for a rating.</span></div>
       ${others.length ? `<div class="stack"><div class="section-header">Co-host with</div><div class="card" style="padding-top:0;padding-bottom:0">${others.map((o) => `<label class="choice"><input type="checkbox" name="cohost" value="${o.id}"><span>${esc(o.name)}</span></label>`).join('')}</div>
-        <p class="footnote">Joint events show up for both clubs. Each person is counted once.</p></div>` : ''}</div>`,
-    { action: 'Post', onSubmit: async (fd) => {
+        <p class="footnote">Joint events show up for both clubs. Each person is counted once.</p></div>` : ''}
+      ${e ? '<p class="footnote">If you change the time or place, everyone who RSVP’d is told.</p>' : ''}</div>`,
+    { action: e ? 'Save' : 'Post', onSubmit: async (fd) => {
       const title = (fd.get('title') || '').trim(); if (title.length < 2) { toast('Give the event a title.', true); return false; }
       const start = new Date(fd.get('start')); if (isNaN(start)) { toast('Pick a start time.', true); return false; }
-      const id = await run(() => rpc('create_event', { p_hosts: [c.id, ...fd.getAll('cohost')], p_title: title, p_starts_at: start.toISOString(),
-        p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(), p_details: (fd.get('details') || '').trim(), p_request: rid,
-        p_reminders: fd.getAll('rem').map(Number) }));
-      if (!id) return false;
-      await refresh(); toast('Event posted'); return true;
+      const newcomer = Object.fromEntries(NEWCOMER.map(([k]) => [k, (fd.get('nc_' + k) || '').trim()]).filter(([, x]) => x));
+      const common = { p_title: title, p_starts_at: start.toISOString(), p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(),
+        p_details: (fd.get('details') || '').trim(), p_reminders: fd.getAll('rem').map(Number), p_newcomer: newcomer };
+      const ok = await run(() => (e ? rpc('update_event', { p_event: e.id, ...common }) : rpc('create_event', { p_hosts: [c.id, ...fd.getAll('cohost')], p_request: rid, ...common })).then(() => true));
+      if (!ok) return false;
+      await refresh(); toast(e ? 'Event updated' : 'Event posted'); return true;
     } });
+  }
+  function taskSheet(clubId, t = null, eventId = null) {
+    const c = club(clubId); if (!c) return;
+    // Club events, from the app's list plus the dashboard's (which can include ones loaded since).
+    const evs = [...S.events.filter((e) => e.hosts.includes(clubId)).map((e) => ({ id: e.id, title: e.title, start: e.start })),
+      ...(dash.club === clubId && dash.data ? dash.data.events.map((e) => ({ id: e.id, title: e.title, start: new Date(e.starts_at) })) : [])]
+      .filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i).sort((a, b) => b.start - a.start).slice(0, 25);
+    const ev = t?.event_id || eventId;
+    openSheet(t ? 'Edit task' : eventId && event(eventId)?.end < new Date() ? 'Follow up' : 'New task', `<div class="stack-l">
+      <label class="field"><span>${eventId && !t && event(eventId)?.end < new Date() ? 'What should happen next?' : 'Task'}</span><input class="input" name="title" maxlength="140" value="${esc(t?.title || '')}" placeholder="e.g. Email everyone the photos, book a bigger room" required></label>
+      <label class="field"><span>Who owns it</span><select class="input" name="owner"><option value="">Unassigned</option>${c.officers.map((o) => `<option value="${o.user_id}" ${(t ? t.owner_id : S.user.id) === o.user_id ? 'selected' : ''}>${esc(o.name)} · ${esc(o.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>Due</span><input class="input" type="date" name="due" value="${esc(t?.due_on || '')}"></label>
+      <label class="field"><span>Event</span><select class="input" name="event"><option value="">None</option>${evs.map((e) => `<option value="${e.id}" ${ev === e.id ? 'selected' : ''}>${esc(e.title)} · ${esc(fmt.short(e.start))}</option>`).join('')}</select></label>
+      ${t ? `<button type="button" class="btn danger" data-action="delete-task" data-id="${t.id}">Delete task</button>` : ''}
+      <p class="footnote">Only officers see tasks. The owner gets a note in their inbox.</p></div>`,
+    { action: 'Save', onSubmit: async (fd) => {
+      const title = (fd.get('title') || '').trim(); if (title.length < 2) { toast('Describe the task.', true); return false; }
+      const ok = await run(() => rpc('save_task', { p_task: t?.id || null, p_club: clubId, p_title: title, p_owner: fd.get('owner') || null,
+        p_due: fd.get('due') || null, p_event: fd.get('event') || null }).then(() => true));
+      if (ok) { toast('Saved'); redrawDash(); } return !!ok;
+    } });
+  }
+  function pollSheet(c) {
+    const local = (d) => new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const base = new Date(); base.setDate(base.getDate() + 5); base.setHours(18, 0, 0, 0);
+    const slot = (i) => { const d = new Date(base); d.setDate(d.getDate() + i); return `<input class="input" type="datetime-local" name="slot" value="${local(d)}">`; };
+    const dl = new Date(); dl.setDate(dl.getDate() + 3); dl.setHours(21, 0, 0, 0);
+    const form = openSheet('Find a time', `<div class="stack-l">
+      <label class="field"><span>What’s it for?</span><input class="input" name="title" maxlength="140" placeholder="e.g. First general meeting" required></label>
+      <div class="field"><span>Times to offer (2–6)</span><div class="stack" id="slots" style="gap:8px">${slot(0)}${slot(1)}${slot(2)}</div>
+        <button type="button" class="link-btn" id="add-slot" style="justify-self:start">＋ Add a time</button></div>
+      <label class="field"><span>Length</span><select class="input" name="duration">${[[30, '30 min'], [60, '1 hr'], [90, '1 hr 30 min'], [120, '2 hr'], [180, '3 hr']].map(([m, l]) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field"><span>Where (if you know)</span><input class="input" name="location" maxlength="140"></label>
+      <label class="field"><span>Reply by</span><input class="input" type="datetime-local" name="deadline" value="${local(dl)}"></label>
+      <p class="footnote">Members answer yes, maybe or no for each time. You only see the totals. Pick a time and it becomes an event.</p></div>`,
+    { action: 'Send', onSubmit: async (fd) => {
+      const slots = fd.getAll('slot').filter(Boolean).map((x) => new Date(x).toISOString());
+      const title = (fd.get('title') || '').trim(); if (title.length < 2) { toast('Say what it’s for.', true); return false; }
+      const id = await run(() => rpc('create_poll', { p_club: c.id, p_title: title, p_slots: slots, p_duration: Number(fd.get('duration')),
+        p_location: (fd.get('location') || '').trim(), p_deadline: new Date(fd.get('deadline')).toISOString() }));
+      if (!id) return false;
+      toast('Poll sent to members'); dash.tab = 'polls'; redrawDash(); if (route().name === 'club') render(); return true;
+    } });
+    form.querySelector('#add-slot').addEventListener('click', () => {
+      const box = form.querySelector('#slots'); if (box.children.length >= 6) return toast('Up to 6 times.', true);
+      box.insertAdjacentHTML('beforeend', slot(box.children.length));
+    });
   }
   function correctSheet(recordId, name, eventId) {
     openSheet('Correct attendance', `<div class="stack-l"><p>Remove <strong>${esc(name)}</strong> from attendance?</p>
@@ -1177,6 +1424,7 @@
       case 'ob-finish': {
         const interests = S.ob.interests; S.ob = null;
         await run(loadAll);
+        if (d.v === 'intent' && applyIntent()) break;
         if (d.v === 'create') { newClub(); location.hash = '#/new-club'; }
         else { S.interest = null; location.hash = '#/discover'; if (d.v === 'join' && !S.clubs.some((x) => interests.includes(x.interest))) toast('No clubs match yet. Browse them all, or start one.'); }
         render(); break; }
@@ -1201,6 +1449,7 @@
       case 'step-down': closeSheet(); confirmSheet(`Step down from ${c.name}?`, 'You’ll stay a member. Your position opens up for someone else.', 'Step down', async () => {
         await rpc('remove_officer', { p_club: c.id, p_user: S.user.id }); await refresh(); toast('You stepped down'); return true; }); break;
       case 'invite': inviteSheet(c, d.v); break;
+      case 'delete-task': closeSheet(); if (await run(() => rpc('delete_task', { p_task: d.id }).then(() => true))) { toast('Deleted'); redrawDash(); } break;
       case 'revoke-invite': if (await run(() => rpc('revoke_invite', { p_invite: d.id }).then(() => true))) { await refresh(); toast('Invite cancelled'); } break;
       case 'invite-answer': {
         const inv = S.invites.find((i) => i.id === d.id), yes = d.v === '1';
@@ -1226,6 +1475,7 @@
       case 'rate': {
         const v = Number(d.v);
         el.parentElement.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < v));
+        const rc = el.closest('.rate-card'); if (rc) rc.dataset.stars = v;
         const ok = await run(() => rpc('rate_event', { p_event: d.event, p_stars: v }).then(() => true));
         if (ok) { toast('Thanks. Your rating is anonymous.'); await run(loadInbox); if (route().name === 'inbox') render(); }
         break; }
@@ -1243,6 +1493,22 @@
         if (d.v === 'leave') confirmSheet(`Leave ${name}?`, 'You can always join again later.', 'Leave club', go); else run(go);
         break; }
       case 'dash-tab': dash.tab = d.v; if (dash.data) $('#dash-body').innerHTML = dashBody(dash.club); break;
+      case 'dash-filter': dash.filter = d.v; if (dash.data) $('#dash-body').innerHTML = dashBody(dash.club); break;
+      case 'add-task': taskSheet(d.club, null, d.event); break;
+      case 'edit-task': { const t = dash.tasks.find((x) => x.id === d.id); if (t) taskSheet(t.club_id, t); break; }
+      case 'task-done': if (await run(() => rpc('set_task_done', { p_task: d.id, p_done: d.v === '1' }).then(() => true))) { toast(d.v === '1' ? 'Done' : 'Reopened'); redrawDash(); } break;
+      case 'new-poll': pollSheet(c); break;
+      case 'close-poll': if (await run(() => rpc('close_poll', { p_poll: d.id }).then(() => true))) { toast('Poll closed'); redrawDash(); } break;
+      case 'schedule-poll': {
+        const p = dash.polls.find((x) => x.id === d.poll), slot = dash.results[d.poll]?.slots.find((x) => x.id === d.slot);
+        confirmSheet(`Schedule ${p.title}?`, `${fmt.full(new Date(slot.starts_at))}. This posts the event and tells everyone who said yes or maybe.`, 'Post event', async () => {
+          const evId = await rpc('schedule_poll', { p_poll: d.poll, p_slot: d.slot, p_request: uuid() });
+          await refresh(); location.hash = `#/event/${evId}`; toast('Event posted'); return true; }, 'primary');
+        break; }
+      case 'vote': {
+        const box = el.closest('.vote'); box.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === el));
+        if (await run(() => rpc('vote_poll', { p_slot: d.slot, p_answer: d.v }).then(() => true))) toast('Saved');
+        break; }
       case 'dash-csv': if (dash.data) download(`members-${fileSafe(club(d.club)?.name)}.csv`, 'text/csv', membersCsv(dash.data)); break;
       case 'copy-emails': {
         if (!dash.data) break;
@@ -1261,7 +1527,22 @@
       case 'ics': { const e = event(d.id); download(`${fileSafe(e.title)}.ics`, 'text/calendar', icsFor(e)); break; }
       case 'cancel-event': confirmSheet('Cancel this event?', 'Everyone who RSVP’d gets told. RSVPs and check-ins are kept.', 'Cancel event', async () => {
         await rpc('cancel_event', { p_event: d.id }); await refresh(); toast('Event cancelled'); return true; }); break;
-      case 'new-event': newEventSheet(c); break;
+      case 'new-event': eventSheet(c); break;
+      case 'edit-event': { const e = event(d.id); eventSheet(club(e.hosts.find(isOfficer)), e); break; }
+      case 'share-event': {
+        const e = event(d.id), url = `${HERE}#/event/${e.id}`;
+        if (navigator.share) navigator.share({ title: e.title, text: `${e.title} · ${fmt.full(e.start)}`, url }).catch(() => {}); else copy(url, 'Link');
+        break; }
+      case 'feedback': {
+        const card = el.closest('.rate-card'), st = Number(card?.dataset.stars || 0);
+        if (!st) { toast('Pick a star rating first.', true); break; }
+        const ok = await run(() => rpc('rate_event', { p_event: d.event, p_stars: st, p_keep: $('#fb-keep').value, p_change: $('#fb-change').value }).then(() => true));
+        if (ok) toast('Thanks. Officers never see who wrote it.');
+        break; }
+      case 'preview-go': {
+        if (d.v !== 'signin') saveIntent({ type: d.v, id: d.id, name: d.name });
+        S.signin.show = true; render(); break; }
+      case 'preview-back': takeIntent(); S.signin.show = false; render(); break;
       case 'ci-mode': ci.mode = d.v; render(); break;
       case 'ci-member': await ciCheckIn(d.event, { p_member: d.user }); $('#lookup')?.dispatchEvent(new Event('input')); break;
       case 'correct': correctSheet(d.id, d.name, d.event); break;
@@ -1291,9 +1572,12 @@
       const blob = await run(() => squareImage(el.files[0]));
       if (blob && S.nc) { if (S.nc.logoPreview) URL.revokeObjectURL(S.nc.logoPreview); S.nc.logoBlob = blob; S.nc.logoPreview = URL.createObjectURL(blob); render(); }
     }
-    if (el.dataset.change === 'notify') {
-      const ok = await run(() => rpc('update_notify', { p_club: el.dataset.club, p_notify: el.value }).then(() => true));
-      if (ok) { S.memberships[el.dataset.club].notify = el.value; toast('Saved'); }
+    if (el.dataset.mem) {
+      const card = el.closest('[data-mem-card]'), clubId = card.dataset.memCard, m = S.memberships[clubId];
+      const next = { notify: card.querySelector('[data-mem=notify]').value, involvement: card.querySelector('[data-mem=involvement]').value,
+        recognition_ok: card.querySelector('[data-mem=recognition]')?.checked ?? m.recognition_ok };
+      const ok = await run(() => rpc('update_membership', { p_club: clubId, p_notify: next.notify, p_involvement: next.involvement, p_recognition_ok: next.recognition_ok }).then(() => true));
+      if (ok) { Object.assign(m, next); if (next.involvement === 'organize' && m.role === 'member') m.role = 'founding'; toast('Saved'); }
     }
     if (el.dataset.privacy) {
       const key = el.dataset.privacy, val = el.checked;
@@ -1309,7 +1593,8 @@
     S.user = profile;
     await run(loadAll); lastLoad = Date.now();
     if (!profile.onboarded_at) startOnboarding();
-    S.booting = false; render();
+    S.booting = false; S.signin.show = false;
+    if (S.ob || !applyIntent()) render();
   }
   async function boot() {
     const params = new URLSearchParams(location.search);
