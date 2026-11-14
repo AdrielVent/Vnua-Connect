@@ -463,3 +463,14 @@ a.card:active, button.card:active { transform: scale(.99); }
 /* Long invited emails wrap instead of pushing buttons/badges off-screen */
 .slot .spacer, .team .row .spacer, .list-row .spacer, .todo .spacer { min-width: 0; overflow-wrap: anywhere; }
 .slot .btn, .slot .link-btn, .team .row .badge { flex: none; }
+
+/* Shared club page: Join pinned to the bottom (references: Lex, Meetup, Garmin Connect, Numo on Mobbin) */
+.pin-bar { position: sticky; bottom: 0; z-index: 5; display: grid; gap: 10px; margin: 20px calc(-1 * var(--gutter)) 0;
+  padding: 12px var(--gutter) calc(env(safe-area-inset-bottom) + 12px); background: var(--bg); border-top: .5px solid var(--divider); }
+.pin-bar .footnote { text-align: center; }
+#preview { padding-bottom: 0; }
+/* Members line with a few faces (references: Meetup, Numo) */
+.member-line { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 15px; }
+.member-line .faces { display: inline-flex; }
+.member-line .faces .avatar { border: 2px solid var(--bg); box-sizing: content-box; }
+.member-line .faces .avatar + .avatar { margin-left: -8px; }

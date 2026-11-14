@@ -186,6 +186,7 @@
     flag: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
     check: svg('<path d="m5 12 5 5 9-10"/>'),
+    share: svg('<path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>'),
     archive: svg('<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10h14V9M10 13h4"/>'),
     star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.5l-5.4 2.9 1.2-5.9L3.4 9.4l6-.7z"/></svg>',
   };
@@ -334,19 +335,25 @@
     if (!data) { box.innerHTML = `<div class="empty"><h2>This link isn’t available</h2><p>The ${r.name} may be private, still forming, or removed.</p>
       <button class="btn primary" style="max-width:260px;margin:16px auto 0" data-action="preview-go" data-v="signin">Sign in to Vnua-connect</button></div>`; return; }
     if (r.name === 'club') {
+      // Layout follows Mobbin references (see docs/DESIGN.md): club details first, Join pinned to the bottom
+      // (Lex, Meetup, Garmin Connect, Numo); members line with avatars (Meetup, Numo; "X members" like LinkedIn,
+      // Facebook, Lex); share in the top corner (Meetup, Glassdoor, LinkedIn).
       const c = data, ne = c.next_event;
-      box.innerHTML = `<div class="stack-l" style="padding-top:24px">
-        <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:30px;font-weight:800">${esc(c.name)}</h1>
-          <p class="muted">${esc(c.blurb)}</p>
-          <div class="badges">${badge(c.interest)}${recogLabel[c.recognition] ? badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '') : ''}${badge(plural(c.members, 'member'))}</div></div>
-        <div class="card stack"><button class="btn primary" data-action="preview-go" data-v="join" data-id="${c.id}" data-name="${esc(c.name)}">Join ${esc(c.name)}</button>
-          <button class="btn secondary" data-action="preview-go" data-v="help" data-id="${c.id}" data-name="${esc(c.name)}">Help build this group</button>
-          <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email.</p></div>
+      const faces = (c.officers || []).slice(0, 4).map((o) => avatar(o.name, 26)).join('');
+      const meta = [plural(c.members, 'member'), c.interest, recogLabel[c.recognition] || ''].filter(Boolean).map(esc).join(' · ');
+      box.innerHTML = `<div class="topbar"><span class="spacer"></span><button class="icon-btn" data-action="share-preview" data-id="${c.id}" data-name="${esc(c.name)}" aria-label="Share club">${icon.share}</button></div>
+        <div class="stack-l">
+        <div class="stack" style="gap:8px">${mono(c, 64)}<h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
+          <div class="member-line">${faces ? `<span class="faces" aria-hidden="true">${faces}</span>` : ''}<span>${meta}</span></div>
+          <p>${esc(c.blurb)}</p></div>
         ${ne ? `<div class="stack"><div class="section-header">Next up</div><div class="card"><div class="event-title">${esc(ne.title)}</div>
           <div class="muted" style="font-size:15px">${esc(fmt.full(new Date(ne.starts_at)))}${ne.location ? ' · ' + esc(ne.location) : ''}</div></div></div>` : ''}
         ${c.about ? `<div class="card stack"><div class="section-header">About</div><p>${esc(c.about)}</p></div>` : ''}
         ${c.officers.length ? `<div class="card stack"><div class="section-header">E-board</div>${c.officers.map((o) => `<div class="row">${avatar(o.name, 36)}<div><strong>${esc(o.name)}</strong> <span class="footnote">· ${esc(o.title || 'Officer')}</span></div></div>`).join('')}</div>` : ''}
-        ${signInBar}<p class="footnote" style="text-align:center">Student-run. Not affiliated with or endorsed by ${esc(c.campus || CFG.campus.name)}.</p></div>`;
+        ${signInBar}<p class="footnote" style="text-align:center">Student-run. Not affiliated with or endorsed by ${esc(c.campus || CFG.campus.name)}.</p></div>
+        <div class="pin-bar"><button class="btn primary" data-action="preview-go" data-v="join" data-id="${c.id}" data-name="${esc(c.name)}">Join ${esc(c.name)}</button>
+          <button class="btn secondary" data-action="preview-go" data-v="help" data-id="${c.id}" data-name="${esc(c.name)}">Help build this group</button>
+          <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email.</p></div>`;
     } else {
       const e = data, st = new Date(e.starts_at), host = e.hosts?.[0];
       box.innerHTML = `<div class="stack-l" style="padding-top:24px">
@@ -1890,6 +1897,11 @@
       case 'preview-go': {
         if (d.v !== 'signin') saveIntent({ type: d.v, id: d.id, name: d.name });
         S.signin.show = true; render(); break; }
+      case 'share-preview': {
+        const url = `${HERE}#/club/${d.id}`;
+        if (navigator.share) navigator.share({ title: d.name, text: `${d.name} is on Vnua-connect. Tap to see it and join with your Hofstra email:`, url }).catch(() => {});
+        else copy(url, 'Link');
+        break; }
       case 'preview-back': takeIntent(); S.signin.show = false; render(); break;
       case 'ci-mode': ci.mode = d.v; render(); break;
       case 'ci-member': await ciCheckIn(d.event, { p_member: d.user }); $('#lookup')?.dispatchEvent(new Event('input')); break;
