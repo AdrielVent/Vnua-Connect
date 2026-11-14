@@ -367,3 +367,50 @@ img.avatar.photo { flex: none; border-radius: 50%; object-fit: cover; background
 .photo-badge { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 700;
   padding: 2px 8px; border-radius: 999px; background: var(--surface); color: var(--accent); border: .5px solid var(--divider); }
 .photo-pick:focus-within { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 50%; }
+
+/* ───── Design cleanup (Nov 14). Sources: Fountain Institute "7 signs of a vibe-coded UI";
+   Nutlope/hallmark anti-pattern catalogue; Refactoring UI (hierarchy via weight/color, fewer borders);
+   Lucide icon design principles (one set, 24px grid, 2px stroke). ───── */
+:root { --surface: #fcfcfd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface: #141c2c; } }
+:root[data-theme="dark"] { --surface: #141c2c; }
+
+/* Section labels: sentence case, not an uppercase "eyebrow" on every block */
+.section-header { text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--text); margin: 12px 0 -2px; }
+
+/* No colored side stripes */
+.fair-note { border-left: 0; padding-left: 0; margin-top: -4px; }
+.newcomer, .note.unread, .invite-card, .founder-entry { border-left: .5px solid var(--divider); border-color: var(--divider); }
+.newcomer { border: .5px solid var(--divider); }
+.note.unread .note-title::after { content: "New"; margin-left: 8px; font-size: 12px; font-weight: 700; color: var(--accent); vertical-align: 1px; }
+.invite-card { border: 1px solid var(--accent); }
+
+/* Icons: one drawn set, sized to their context */
+.back { gap: 2px; }
+.back svg { width: 22px; height: 22px; margin-left: -6px; }
+.icon-btn { display: inline-grid; place-items: center; }
+.icon-btn svg { width: 22px; height: 22px; }
+.chev svg { width: 18px; height: 18px; color: var(--text-2); opacity: .6; }
+.chev { margin-top: 0; align-self: center; }
+.btn svg { width: 18px; height: 18px; }
+.slot .tick svg { width: 18px; height: 18px; color: var(--success); }
+#lookup-results svg { width: 20px; height: 20px; }
+.person-card .small-icon svg { width: 18px; height: 18px; }
+.notice-card.archived { display: flex !important; gap: 12px; align-items: flex-start; background: var(--fill); }
+.notice-card.archived svg { width: 22px; height: 22px; flex: none; color: var(--text-2); }
+.notice-card.archived > div { display: grid; gap: 2px; }
+
+/* Solid, edge-attached tab bar and plain toast (no decorative frosted glass) */
+.tabbar { left: 0; right: 0; transform: none; bottom: 0; width: 100%; border-radius: 0; padding: 6px 8px calc(env(safe-area-inset-bottom) + 4px);
+  background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border: 0; border-top: .5px solid var(--divider); }
+.tabbar a { border-radius: 10px; }
+.tabbar a[aria-current="page"]::after { display: none; }
+.tabbar a[aria-current="page"] { font-weight: 700; }
+.screen { padding-bottom: calc(env(safe-area-inset-bottom) + 84px); }
+#toast { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border: .5px solid var(--divider); border-radius: 12px; }
+
+/* Avatars without a photo: one quiet neutral, not random pastels */
+.avatar:not(.photo) { background: var(--fill) !important; color: var(--text-2) !important; }
+
+/* Fewer, quieter badges */
+.badge { font-weight: 500; }

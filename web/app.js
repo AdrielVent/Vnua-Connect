@@ -85,16 +85,17 @@
   const event = (id) => S.events.find((e) => e.id === id);
   const membership = (id) => S.memberships[id];
   const isMember = (id) => membership(id)?.status === 'active';
+  const isPresident = (clubId) => isOfficer(clubId) && (membership(clubId)?.officer_title || '').toLowerCase() === 'president';
   const isOfficer = (clubId) => membership(clubId)?.role === 'officer' && membership(clubId)?.status === 'active';
   const runsEvent = (e) => e.hosts.some(isOfficer);
-  const visibleClubs = () => S.clubs.filter((c) => !S.blocked.has(c.id));
+  const visibleClubs = () => S.clubs.filter((c) => !S.blocked.has(c.id) && !c.archived_at);
   const visibleEvents = () => S.events.filter((e) => !e.hosts.every((h) => S.blocked.has(h)));
   const hostNames = (e) => e.hosts.map((h) => club(h)?.name).filter(Boolean).join(' + ');
   const coreFilled = (c) => CORE.filter((t) => c.officers.some((o) => o.title.toLowerCase() === t.toLowerCase())).length;
   const myInvites = () => S.invites.filter((i) => i.email === S.user.email);
   const clubInvites = (id) => S.invites.filter((i) => i.club_id === id);
   const unread = () => S.notifs.filter((n) => !n.read_at).length + myInvites().length;
-  const recogLabel = { recognized: 'Recognized', not_recognized: 'Not yet recognized', not_stated: 'Status not stated' };
+  const recogLabel = { recognized: 'Recognized by Hofstra', not_recognized: 'Not yet recognized', not_stated: '' };
   const roleLabel = { member: 'Member', founding: 'Founding member', officer: 'Officer' };
 
   // ───────────── Data ─────────────
@@ -156,6 +157,13 @@
     mail: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/>'),
     phone: svg('<path d="M5 4h3l1.5 4.5-2 1.3a11 11 0 0 0 6.7 6.7l1.3-2L20 16v3a1.5 1.5 0 0 1-1.6 1.5C10.6 20 4 13.4 3.5 5.6A1.5 1.5 0 0 1 5 4"/>'),
     link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    chevronLeft: svg('<path d="m15 18-6-6 6-6"/>'),
+    chevronRight: svg('<path d="m9 18 6-6-6-6"/>'),
+    more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+    flag: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    check: svg('<path d="m5 12 5 5 9-10"/>'),
+    archive: svg('<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10h14V9M10 13h4"/>'),
     star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.5l-5.4 2.9 1.2-5.9L3.4 9.4l6-.7z"/></svg>',
   };
 
@@ -205,7 +213,7 @@
     const n = unread();
     return `<div class="title-row"><h1 class="large-title">${esc(title)}</h1>${extra}<a class="icon-btn bell" href="#/inbox" data-bell aria-label="${n ? `Inbox, ${n} new` : 'Inbox'}">${icon.bell}${n ? `<span class="dot">${n > 9 ? '9+' : n}</span>` : ''}</a></div>`;
   }
-  const back = (href, label = 'Back') => `<div class="topbar"><a class="back" href="${href}">‹ ${esc(label)}</a><span class="spacer"></span>`;
+  const back = (href, label = 'Back') => `<div class="topbar"><a class="back" href="${href}">${icon.chevronLeft}<span>${esc(label)}</span></a><span class="spacer"></span>`;
 
   // ───────────── Pieces ─────────────
   const mono = (c, size = 48) => c.logo_url
@@ -229,7 +237,7 @@
       m ? (m.status === 'pending' ? badge('Requested', 'warning') : badge(m.role === 'officer' ? (m.officer_title || 'Officer') : roleLabel[m.role], 'success')) : ''}</div>`;
   }
   const clubRow = (c) => `<a class="card club-row" href="#/club/${c.id}">${mono(c)}<div class="spacer"><div class="name">${esc(c.name)}</div>
-    <div class="blurb">${esc(c.blurb)}</div>${clubBadges(c)}</div><span class="chev">›</span></a>`;
+    <div class="blurb">${esc(c.blurb)}</div>${clubBadges(c)}</div><span class="chev">${icon.chevronRight}</span></a>`;
   function statusBadge(e) {
     return e.status === 'rescheduled' ? badge('Rescheduled', 'warning') : e.status === 'cancelled' ? badge('Cancelled', 'warning') : '';
   }
@@ -289,7 +297,7 @@
       box.innerHTML = `<div class="stack-l" style="padding-top:24px">
         <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:30px;font-weight:800">${esc(c.name)}</h1>
           <p class="muted">${esc(c.blurb)}</p>
-          <div class="badges">${badge(c.interest)}${badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${badge(plural(c.members, 'member'))}</div></div>
+          <div class="badges">${badge(c.interest)}${recogLabel[c.recognition] ? badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '') : ''}${badge(plural(c.members, 'member'))}</div></div>
         <div class="card stack"><button class="btn primary" data-action="preview-go" data-v="join" data-id="${c.id}" data-name="${esc(c.name)}">Join ${esc(c.name)}</button>
           <button class="btn secondary" data-action="preview-go" data-v="help" data-id="${c.id}" data-name="${esc(c.name)}">Help build this group</button>
           <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email.</p></div>
@@ -325,12 +333,12 @@
     const s = S.signin;
     const wait = Math.max(0, 60 - Math.floor((Date.now() - s.sentAt) / 1000));
     const disclaimer = `<p class="footnote">Vnua-connect is student-run and not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p>`;
-    const intro = `<div class="stack"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
+    const intro = `<div class="stack">
         <h1 class="large-title" style="margin:0">Vnua-connect</h1>
         <p class="muted">Find new student clubs at ${esc(CFG.campus.name)}, join or start one, and check in at events.</p></div>`;
     const it = peekIntent();
     const ctx = it ? `<div class="card notice-card"><strong>${it.type === 'event' ? 'RSVP to' : it.type === 'help' ? 'Help build' : 'Join'} ${esc(it.name || '')}</strong><span class="muted">Sign in first. It takes a minute, and we’ll bring you right back.</span></div>` : '';
-    const topLinks = [s.show ? '<button class="back" data-action="preview-back">‹ Back</button>' : '', S.user ? '<button class="back" data-action="cancel-add-account">‹ Cancel</button>' : ''].join('');
+    const topLinks = [s.show ? `<button class="back" data-action="preview-back">${icon.chevronLeft}<span>Back</span></button>` : '', S.user ? `<button class="back" data-action="cancel-add-account">${icon.chevronLeft}<span>Cancel</span></button>` : ''].join('');
     const backBtn = topLinks ? `<div class="topbar">${topLinks}</div>` : '';
     const pad = `padding-top:${backBtn ? 8 : 48}px`;
     const adding = S.user ? '<div class="card notice-card"><strong>Add another account</strong><span class="muted">You can switch between accounts on this device from Profile.</span></div>' : '';
@@ -466,10 +474,10 @@
     const nav = (next = 'Continue') => `<div class="ob-nav"><button class="btn primary" data-action="ob-next">${next}</button>
       ${st > 0 ? '<button class="link-btn" data-action="ob-back">Back</button>' : ''}</div>`;
     let body;
-    if (st === 0) body = `<div class="stack-l ob-hero"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
+    if (st === 0) body = `<div class="stack-l ob-hero">
         <h1 class="large-title" style="margin:0">Welcome to Vnua-connect</h1>
-        <p class="muted" style="font-size:19px">The place for the clubs that are just getting started. First, a quick profile so clubs and people with the same interests can find you.</p>
-        <p class="footnote">Takes about a minute. You can change all of it later in Profile.</p>
+        <p class="muted" style="font-size:19px">For clubs that are just getting started. Set up a quick profile so the right clubs and people can find you.</p>
+        <p class="footnote">About a minute. You can change it later.</p>
         <div class="ob-nav"><button class="btn primary" data-action="ob-next">Let’s go</button></div></div>`;
     else if (st === 1) body = `${dots}<h1 class="ob-title">About you</h1><div class="stack-l">
         <div class="row">${photoPicker(S.user, 72, 'ob-avatar')}<p class="footnote spacer">Add a photo so people recognize you at events. Optional, and only students signed in here can see it.</p></div>
@@ -533,7 +541,7 @@
       .concat([...new Set(S.clubs.map((c) => c.interest))].sort().map((i) => `<button class="chip" data-action="interest" data-v="${esc(i)}" aria-pressed="${S.interest === i}">${esc(i)}</button>`)).join('');
     return `${titleBar('Discover')}<div class="stack-l">
       ${myInvites().length ? `<a class="card notice-card" href="#/inbox"><strong>You’re invited to an officer team</strong><span class="muted">${esc(myInvites().map((i) => `${i.position} of ${club(i.club_id)?.name || 'a club'}`).join(' · '))}</span></a>` : ''}
-      <p class="fair-note">Every club gets the same spot here. Clubs are listed A–Z, never by size or popularity, so new and small groups show up as easily as big ones.</p>
+      <p class="fair-note">Clubs are listed A–Z, never by size or popularity, so new and small groups get the same spot as big ones.</p>
       <label class="search"><span class="sr">Search clubs</span><input class="input" id="search" type="search" placeholder="Clubs and interests" value="${esc(S.q)}" autocomplete="off"></label>
       <div class="chips" role="group" aria-label="Interests">${chips}</div>
       <div id="discover-body" class="stack-l">${discoverBody()}</div></div>`;
@@ -581,17 +589,19 @@
         ${o.major || o.class_year ? `<div class="footnote">${esc([o.major, o.class_year].filter(Boolean).join(' · '))}</div>` : ''}
         ${o.ask_about ? `<div class="ask">Contact me about ${esc(o.ask_about.replace(/^about\s+/i, ''))}</div>` : ''}
         ${contactButtons(o)}</div></div>`).join('');
-    return `${back('#/discover', 'Discover')}<button class="icon-btn" data-action="club-menu" data-club="${c.id}" aria-label="More">⋯</button></div>
+    return `${back('#/discover', 'Discover')}<button class="icon-btn" data-action="club-menu" data-club="${c.id}" aria-label="More">${icon.more}</button></div>
       <div class="stack-l">
+        ${c.archived_at ? `<div class="card notice-card archived">${icon.archive}<div><strong>Archived ${esc(fmt.short(new Date(c.archived_at)))}</strong>
+          <span class="muted">Read-only. Members keep their check-in history.${isPresident(c.id) ? ' Unarchive it from the More menu.' : ''}</span></div></div>` : ''}
         <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
-          <p class="muted">${esc(c.blurb)}</p><div class="badges">${badge(c.interest)}${clubStatusBadge(c)}${badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${c.funded ? badge('Funded', 'accent') : ''}</div></div>
+          <p class="muted">${esc(c.blurb)}</p><div class="badges">${badge(c.interest)}${clubStatusBadge(c)}${recogLabel[c.recognition] ? badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '') : ''}${c.funded ? badge('Funded', 'accent') : ''}</div></div>
         ${invite ? `<div class="card stack invite-card"><strong>You’re invited to be ${esc(invite.position)}</strong>
           <p class="muted" style="font-size:15px">If you accept, your name, position and school email show on this page so students can reach you.</p>
           <div class="row"><button class="btn secondary" data-action="invite-answer" data-id="${invite.id}" data-v="0">Decline</button><button class="btn primary" data-action="invite-answer" data-id="${invite.id}" data-v="1">Accept</button></div></div>` : ''}
         ${!c.is_published && !officer ? `<div class="card notice warning">This club is still forming. Students see it once its four officers are in and a moderator has reviewed it.</div>` : ''}
-        ${officer ? teamCard(c) : ''}
-        ${memberCard}
-        ${officer ? `<div class="officer-actions"><a class="btn primary" href="#/dash/${c.id}">Officer dashboard</a>
+        ${officer && !c.archived_at ? teamCard(c) : ''}
+        ${c.archived_at ? '' : memberCard}
+        ${officer && !c.archived_at ? `<div class="officer-actions"><a class="btn primary" href="#/dash/${c.id}">Officer dashboard</a>
           <button class="btn secondary" data-action="new-event" data-club="${c.id}">New event</button>
           <div class="row"><button class="btn secondary" data-action="new-poll" data-club="${c.id}">Find a time</button><button class="btn secondary" data-action="announce" data-club="${c.id}">Announcement</button></div>
           ${c.is_published ? `<button class="btn secondary" data-action="share" data-club="${c.id}">Share the club link</button>` : ''}</div>
@@ -608,7 +618,7 @@
     const inv = clubInvites(c.id), n = coreFilled(c);
     const row = (title) => {
       const o = c.officers.find((x) => x.title.toLowerCase() === title.toLowerCase());
-      if (o) return `<div class="slot filled"><span class="slot-t">${esc(title)}</span><span class="spacer">${esc(o.name)}</span><span class="tick">✓</span></div>`;
+      if (o) return `<div class="slot filled"><span class="slot-t">${esc(title)}</span><span class="spacer">${esc(o.name)}</span><span class="tick" aria-label="Accepted">${icon.check}</span></div>`;
       const i = inv.find((x) => x.position.toLowerCase() === title.toLowerCase());
       if (i) return `<div class="slot pending"><span class="slot-t">${esc(title)}</span><span class="spacer footnote">Invited ${esc(i.email)}</span>
         <button class="link-btn danger" data-action="revoke-invite" data-id="${i.id}">Cancel</button></div>`;
@@ -621,7 +631,7 @@
         <span class="badge ${n === 4 ? 'success' : 'warning'}">${n}/4 core</span></div>
       ${n < 4 ? `<p class="footnote">A club goes live once a president, vice president, treasurer and secretary have all accepted. ${c.is_published ? '' : 'Then a moderator reviews it, usually within a day.'}</p>` : c.is_published ? '' : '<p class="footnote">All four are in. A moderator will review the club next, usually within a day.</p>'}
       <div>${CORE.map(row).join('')}${extras.map(row).join('')}</div>
-      <button class="link-btn" data-action="invite" data-club="${c.id}" data-v="" style="justify-self:start">＋ Add another position</button></div>`;
+      <button class="link-btn" data-action="invite" data-club="${c.id}" data-v="" style="justify-self:start">Add another position</button></div>`;
   }
   after.club = async (id) => {
     if (isMember(id)) {
@@ -650,8 +660,8 @@
     if (!reqs || !$('#join-requests')) return;
     box.innerHTML = `<div class="section-header">Join requests · ${reqs.length}</div>${reqs.length ? reqs.map((r) => `<div class="list-row">
       <div class="spacer"><div style="font-weight:600">${esc(r.name)}</div><div class="footnote">${esc(roleLabel[r.role])} · ${fmt.rel(new Date(r.requested_at))}</div></div>
-      <button class="btn secondary small" data-action="review" data-club="${id}" data-user="${r.user_id}" data-approve="0" aria-label="Decline ${esc(r.name)}">✕</button>
-      <button class="btn primary small" data-action="review" data-club="${id}" data-user="${r.user_id}" data-approve="1" aria-label="Approve ${esc(r.name)}">✓</button></div>`).join('')
+      <button class="btn secondary small" data-action="review" data-club="${id}" data-user="${r.user_id}" data-approve="0" aria-label="Decline ${esc(r.name)}">Decline</button>
+      <button class="btn primary small" data-action="review" data-club="${id}" data-user="${r.user_id}" data-approve="1" aria-label="Approve ${esc(r.name)}">Approve</button></div>`).join('')
       : '<p class="footnote">No one is waiting.</p>'}`;
   };
 
@@ -699,7 +709,7 @@
       ${n.extra.map((x, i) => `<div class="card stack extra"><label class="field"><span>Position</span><input class="input" data-nc-extra="${i}" data-k="title" value="${esc(x.title)}" maxlength="40" placeholder="e.g. Social media chair"></label>
         <label class="field"><span>Email</span><input class="input" type="email" inputmode="email" autocapitalize="off" data-nc-extra="${i}" data-k="email" value="${esc(x.email)}" placeholder="their school email"></label>
         <button class="link-btn danger" data-action="nc-del-extra" data-v="${i}" style="justify-self:start">Remove</button></div>`).join('')}
-      <button class="link-btn" data-action="nc-add-extra" style="justify-self:start">＋ Add another position</button>
+      <button class="link-btn" data-action="nc-add-extra" style="justify-self:start">Add another position</button>
       <p class="footnote">Don’t have everyone yet? Leave a spot blank and invite them later from the club page.</p>
       ${navBtns('Create club')}</div>`;
   }
@@ -824,7 +834,7 @@
       return `<a class="list-row" href="#/event/${e.id}" style="color:inherit;text-decoration:none"><div class="date-chip"><span class="dow">${fmt.dow(st)}</span><span class="day">${st.getDate()}</span></div>
       <div class="spacer"><div style="font-weight:600">${esc(e.title)}${e.status === 'cancelled' ? ' <span class="footnote">(cancelled)</span>' : ''}</div>
       <div class="footnote">${up ? `${plural(e.rsvps, 'RSVP')} so far` : `${e.checked_in} checked in · ${plural(e.rsvps, 'RSVP')} · ${pct(e.showed, e.rsvps)} of RSVPs came`}</div>
-      ${!up && e.status !== 'cancelled' ? `<div class="footnote">${e.rating_avg != null ? `★ ${e.rating_avg} from ${plural(e.ratings, 'rating')}` : e.ratings ? `${e.ratings}/3 ratings needed to show an average` : 'No ratings yet'}</div>` : ''}</div></a>`; };
+      ${!up && e.status !== 'cancelled' ? `<div class="footnote">${e.rating_avg != null ? `Rated ${e.rating_avg} by ${plural(e.ratings, 'person', 'people')}` : e.ratings ? `${e.ratings}/3 ratings needed to show an average` : 'No ratings yet'}</div>` : ''}</div></a>`; };
     const seg = (v, l) => `<button data-action="dash-tab" data-v="${v}" aria-pressed="${dash.tab === v}">${l}</button>`;
     const chip = (v, l) => `<button class="chip" data-action="dash-filter" data-v="${esc(v)}" aria-pressed="${dash.filter === v}">${esc(l)}</button>`;
     const tab = {
@@ -920,7 +930,7 @@
     const e = event(id);
     if (!e) return `${back('#/events', 'Events')}</div><div class="empty"><h2>Event not found</h2></div>`;
     const going = S.rsvps.has(e.id), live = e.status !== 'cancelled', over = e.end < new Date();
-    return `${back('#/events', 'Events')}<button class="link-btn" data-action="share-event" data-id="${e.id}">Share</button><button class="icon-btn" data-action="report" data-type="event" data-id="${e.id}" data-name="${esc(e.title)}" aria-label="Report event">⚑</button></div>
+    return `${back('#/events', 'Events')}<button class="link-btn" data-action="share-event" data-id="${e.id}">Share</button><button class="icon-btn" data-action="report" data-type="event" data-id="${e.id}" data-name="${esc(e.title)}" aria-label="Report event">${icon.flag}</button></div>
       <div class="stack-l">
         <div class="stack" style="gap:8px">${statusBadge(e) ? `<div>${statusBadge(e)}</div>` : ''}
           <h1 style="font-size:28px;font-weight:800">${esc(e.title)}</h1>
@@ -933,7 +943,7 @@
         ${e.details ? `<p>${esc(e.details)}</p>` : ''}
         <div id="my-rating"></div>
         ${live && !over ? `<div class="stack">
-          <button class="btn ${going ? 'secondary' : 'primary'}" data-action="rsvp" data-id="${e.id}" aria-pressed="${going}">${going ? '✓ Going' : 'RSVP'}</button>
+          <button class="btn ${going ? 'secondary' : 'primary'}" data-action="rsvp" data-id="${e.id}" aria-pressed="${going}">${going ? `${icon.check}Going` : 'RSVP'}</button>
           <a class="btn secondary" href="#/pass/${e.id}">Show my check-in pass</a>
           <button class="btn secondary" data-action="ics" data-id="${e.id}">Add to calendar</button></div>` : ''}
         ${live && over ? `<a class="btn secondary" href="#/pass/${e.id}">Show my check-in pass</a>` : ''}
@@ -965,8 +975,8 @@
     const s = await run(() => rpc('event_stats', { p_event: id }));
     const box = $('#event-stats'); if (!s || !box) return;
     box.innerHTML = `<div class="stats">${stat(s.rsvps, 'RSVPs')}${stat(s.checked_in, 'Checked in')}${stat(pct(s.showed, s.rsvps), 'RSVPs who came', `${s.showed} of ${s.rsvps}`)}
-      ${stat(s.rating_avg != null ? '★ ' + s.rating_avg : '–', 'Rating', s.rating_avg != null ? plural(s.ratings, 'rating') : `${s.ratings}/3 needed`)}</div>
-      ${s.rating_dist ? `<div class="card dist">${s.rating_dist.slice().reverse().map((n, i) => `<div class="row"><span class="footnote" style="width:28px">${5 - i}★</span><div class="bar spacer"><span style="width:${pct(n, s.ratings)}"></span></div><span class="footnote" style="width:24px;text-align:right">${n}</span></div>`).join('')}</div>` : ''}
+      ${stat(s.rating_avg != null ? s.rating_avg + ' / 5' : '–', 'Rating', s.rating_avg != null ? plural(s.ratings, 'rating') : `${s.ratings}/3 needed`)}</div>
+      ${s.rating_dist ? `<div class="card dist">${s.rating_dist.slice().reverse().map((n, i) => `<div class="row"><span class="footnote" style="width:52px">${5 - i} star${5 - i === 1 ? '' : 's'}</span><div class="bar spacer"><span style="width:${pct(n, s.ratings)}"></span></div><span class="footnote" style="width:24px;text-align:right">${n}</span></div>`).join('')}</div>` : ''}
       <p class="footnote">${plural(s.first_timers, 'first-timer')} · ${plural(s.guests, 'guest')} · ${plural(Math.max(0, s.checked_in - s.showed - s.guests), 'walk-in')} who didn’t RSVP</p>
       ${s.keep?.length || s.change?.length ? `<div class="card stack">${s.keep?.length ? `<div><div class="section-header">Keep</div><ul class="fb">${s.keep.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
         ${s.change?.length ? `<div><div class="section-header">Change</div><ul class="fb">${s.change.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}</div>`
@@ -1043,7 +1053,7 @@
     const out = $('#ci-result'); if (!res || !out) return;
     const name = res.record.attendee_name;
     out.className = 'result ' + (res.status === 'recorded' ? 'ok' : 'warn');
-    out.textContent = res.status === 'recorded' ? `✓ ${name} checked in` : `${name} was already checked in`;
+    out.textContent = res.status === 'recorded' ? `${name} checked in` : `${name} was already checked in`;
     if (res.status === 'recorded' && navigator.vibrate) navigator.vibrate(30);
     ciReload(id);
   }
@@ -1058,7 +1068,7 @@
         const box = $('#lookup-results'); if (!rows || !box) return;
         const inNames = new Set(ci.records.filter((r) => !r.removed_at).map((r) => r.attendee_name));
         box.innerHTML = rows.map((m) => `<button class="list-row" style="width:100%;background:none;border:0;border-bottom:.5px solid var(--divider);text-align:left;cursor:pointer" data-action="ci-member" data-event="${id}" data-user="${m.user_id}">
-          <span class="spacer">${esc(m.name)}</span><span style="color:${inNames.has(m.name) ? 'var(--success)' : 'var(--accent)'}">${inNames.has(m.name) ? '✓' : '＋'}</span></button>`).join('')
+          <span class="spacer">${esc(m.name)}</span><span style="color:${inNames.has(m.name) ? 'var(--success)' : 'var(--accent)'}">${inNames.has(m.name) ? icon.check : icon.plus}</span></button>`).join('')
           || '<p class="footnote" style="padding:12px 0">No members or RSVPs match.</p>';
       };
       input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(search, 250); });
@@ -1101,10 +1111,11 @@
   // ───────────── My clubs ─────────────
   function mineView() {
     const by = (f) => visibleClubs().filter((c) => membership(c.id) && f(membership(c.id)));
+    const archived = S.clubs.filter((c) => c.archived_at && membership(c.id));
     const lead = by((m) => m.role === 'officer' && m.status === 'active'), mem = by((m) => m.role !== 'officer' && m.status === 'active'), pend = by((m) => m.status === 'pending');
     const group = (t, l) => l.length ? `<div class="stack"><div class="section-header">${t}</div><div class="list">${l.map(clubRow).join('')}</div></div>` : '';
-    return `${titleBar('My Clubs', '<a class="icon-btn" href="#/new-club" aria-label="Start a club">＋</a>')}
-      <div class="stack-l">${lead.length + mem.length + pend.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend)
+    return `${titleBar('My Clubs', `<a class="icon-btn" href="#/new-club" aria-label="Start a club">${icon.plus}</a>`)}
+      <div class="stack-l">${lead.length + mem.length + pend.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend) + group('Archived', archived)
         + '<a class="btn secondary" href="#/new-club">Start a club</a>'
         : `<div class="empty"><h2>No clubs yet</h2><p style="margin-bottom:16px">Find a club in Discover and join, or start your own.</p><a class="btn primary" style="max-width:240px;margin:0 auto" href="#/new-club">Start a club</a></div>`}</div>`;
   }
@@ -1127,7 +1138,7 @@
     box.innerHTML = rows.map((p) => `<div class="card person-card"><div class="row" style="align-items:flex-start">${avatar(p.name, 52, p.avatar_url)}
         <div class="spacer"><div style="font-weight:700;font-size:17px">${esc(p.name)}${p.pronouns ? ` <span class="footnote">${esc(p.pronouns)}</span>` : ''}</div>
           <div class="footnote">${esc([p.major, p.class_year].filter(Boolean).join(' · '))}</div></div>
-        <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">⚑</button></div>
+        <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">${icon.flag}</button></div>
       ${p.bio ? `<p style="margin-top:8px">${esc(p.bio)}</p>` : ''}
       ${p.help_with?.length ? `<p class="footnote" style="margin-top:6px">Can help with: ${esc(p.help_with.join(', '))}</p>` : ''}${p.looking_for?.length ? `<p class="footnote">Looking for: ${esc(p.looking_for.join(', '))}</p>` : ''}
       <div class="badges">${p.same_major ? badge('Same major', 'success') : ''}${p.interests.map((i) => badge(i, p.shared.includes(i) ? 'accent' : '')).join('')}${p.common_clubs ? badge(`${plural(p.common_clubs, 'club')} in common`, 'success') : ''}</div>
@@ -1200,7 +1211,7 @@
     const signups = d.signups_by_day.map((x) => ({ label: fmt.short(new Date(x.day + 'T12:00')), n: x.n }));
     const weeks = d.checkins_by_week.map((x) => ({ label: 'Week of ' + fmt.short(new Date(x.week + 'T12:00')), n: x.n }));
     const waiting = d.clubs.filter((c) => !c.is_published && c.core === 4);
-    const status = (c) => c.is_published ? badge('Live', 'success') : c.core === 4 ? badge('Waiting for you', 'warning') : badge(`Forming · ${c.core}/4`, '');
+    const status = (c) => c.archived_at ? badge('Archived') : c.is_published ? badge('Live', 'success') : c.core === 4 ? badge('Waiting for you', 'warning') : badge(`Forming · ${c.core}/4`, '');
     const ago = (x) => x ? fmt.rel(new Date(x)) : 'never';
     return `<div class="stack-l">
       <div class="stats">${stat(t.onboarded, 'Students', `${t.students} signed up · ${t.new_7d} new this week`)}${stat(t.active_7d, 'Active this week', `${t.active_30d} in 30 days`)}
@@ -1213,10 +1224,10 @@
         <div class="row footnote"><span class="spacer">${esc(signups[0].label)}</span><span>Today</span></div></div>
       <div class="card stack"><div class="row"><strong class="spacer">Check-ins per week</strong><span class="footnote">${weeks.reduce((s, x) => s + x.n, 0)} in 12 weeks</span></div>${bars(weeks, 'Check-ins per week, last 12 weeks')}
         <div class="row footnote"><span class="spacer">${esc(weeks[0].label)}</span><span>This week</span></div></div>
-      <p class="footnote">${t.memberships} memberships · ${t.events_past} events held · ${t.events_upcoming} coming up · ${t.ratings} ratings${t.rating_avg != null ? ` (avg ★ ${t.rating_avg})` : ''} · ${t.notifications_7d} notifications sent this week</p>
+      <p class="footnote">${t.memberships} memberships · ${t.events_past} events held · ${t.events_upcoming} coming up · ${t.ratings} ratings${t.rating_avg != null ? ` (average ${t.rating_avg} / 5)` : ''} · ${t.notifications_7d} notifications sent this week</p>
       <div class="stack"><div class="row"><div class="section-header spacer">Clubs · ${d.clubs.length}</div><button class="link-btn" data-action="founder-csv" data-v="clubs">CSV</button></div><div class="card">
         ${d.clubs.map((c) => `<div class="list-row"><div class="spacer"><a href="#/club/${c.id}" style="font-weight:600;color:var(--text);text-decoration:none">${esc(c.name)}</a>
-          <div class="footnote">${plural(c.members, 'member')} · ${c.supporters} supporters · ${plural(c.events_past, 'event')} held · ${plural(c.checkins, 'check-in')}${c.rsvps ? ` · ${pct(c.showed, c.rsvps)} of RSVPs came` : ''}${c.rating != null ? ` · ★ ${c.rating}` : ''}</div>
+          <div class="footnote">${plural(c.members, 'member')} · ${c.supporters} supporters · ${plural(c.events_past, 'event')} held · ${plural(c.checkins, 'check-in')}${c.rsvps ? ` · ${pct(c.showed, c.rsvps)} of RSVPs came` : ''}${c.rating != null ? ` · rated ${c.rating} / 5` : ''}</div>
           <div class="footnote">Last activity ${ago(c.last_activity)}</div></div>${status(c)}
           ${c.is_published ? `<button class="link-btn danger" data-action="founder-publish" data-id="${c.id}" data-v="0">Unpublish</button>` : ''}</div>`).join('') || '<p class="footnote">No clubs yet.</p>'}</div></div>
       <div class="stack"><div class="row"><div class="section-header spacer">Students · ${d.people.length}</div><button class="link-btn" data-action="founder-csv" data-v="people">CSV</button></div><div class="card">
@@ -1297,7 +1308,7 @@
       <div class="stack"><div class="section-header">Accounts on this device</div><div class="card" id="accounts">${loadAccounts().map((a) =>
         `<div class="list-row">${avatar(a.name, 36)}<div class="spacer"><div style="font-weight:600">${esc(a.name)}</div><div class="footnote">${esc(a.email)}</div></div>
          ${a.id === u.id ? '<span class="badge success">Signed in</span>' : `<button class="btn secondary small" data-action="switch-account" data-id="${a.id}">Switch</button>`}</div>`).join('')}
-        <div class="list-row"><button class="link-btn" data-action="add-account">＋ Add another account</button></div></div>
+        <div class="list-row"><button class="link-btn" data-action="add-account">Add another account</button></div></div>
         <p class="footnote">Handy if you’re both a member and an officer, or share a club phone. Each account stays signed in until you sign out of it.</p></div>
       <div class="stack"><div class="section-header">Password</div><div class="card stack"><p style="font-size:15px">Optional. Lets you sign in without waiting for an email, including in the Home Screen app.</p>
         <button class="btn secondary" data-action="set-password">Set a password</button></div></div>
@@ -1416,7 +1427,7 @@
       <div class="stack"><div class="section-header">Notifications</div>${radios('notify', NOTIFY, 'rsvp')}</div>
       <label class="choice card" style="border:0"><input type="checkbox" name="recognition"><span><span style="font-weight:600">Count me as a supporter when ${esc(c.name)} applies for official recognition</span>
         <br><span class="footnote">Officers may include your name and school email in that request. You can change this anytime.</span></span></label>
-      <p class="footnote">The club’s officers will see your name, school email, and which events you check in to. You can change all of this later.</p></div>`,
+      <p class="footnote">Officers see your name, school email and check-ins.</p></div>`,
     { action: c.requires_approval ? 'Request' : 'Join', onSubmit: async (fd) => {
       const inv = fd.get('involvement') || 'attend';
       const m = await run(() => rpc('join_club', { p_club: c.id, p_role: inv === 'organize' ? 'founding' : 'member', p_contact: 'events', p_notify: fd.get('notify'),
@@ -1442,6 +1453,8 @@
       ${officer ? `<button type="button" class="btn secondary" data-action="edit-club" data-club="${c.id}">Edit club</button>
       <button type="button" class="btn secondary" data-action="officer-info" data-club="${c.id}">Edit my “contact me about”</button>
       <button type="button" class="btn secondary" data-action="step-down" data-club="${c.id}">Step down as officer</button>` : ''}
+      ${isPresident(c.id) ? `<button type="button" class="btn secondary" data-action="archive-club" data-club="${c.id}" data-v="${c.archived_at ? 0 : 1}">${c.archived_at ? 'Unarchive club' : 'Archive club'}</button>
+      <button type="button" class="btn danger" data-action="delete-club" data-club="${c.id}">Delete club permanently</button>` : ''}
       <button type="button" class="btn secondary" data-action="share" data-club="${c.id}">Share club</button>
       <button type="button" class="btn secondary" data-action="report" data-type="club" data-id="${c.id}" data-name="${esc(c.name)}">Report club</button>
       ${officer ? '' : `<button type="button" class="btn danger" data-action="block" data-club="${c.id}">Block club</button>`}</div>`, { cancel: 'Close' });
@@ -1566,7 +1579,7 @@
     const form = openSheet('Find a time', `<div class="stack-l">
       <label class="field"><span>What’s it for?</span><input class="input" name="title" maxlength="140" placeholder="e.g. First general meeting" required></label>
       <div class="field"><span>Times to offer (2–6)</span><div class="stack" id="slots" style="gap:8px">${slot(0)}${slot(1)}${slot(2)}</div>
-        <button type="button" class="link-btn" id="add-slot" style="justify-self:start">＋ Add a time</button></div>
+        <button type="button" class="link-btn" id="add-slot" style="justify-self:start">Add a time</button></div>
       <label class="field"><span>Length</span><select class="input" name="duration">${[[30, '30 min'], [60, '1 hr'], [90, '1 hr 30 min'], [120, '2 hr'], [180, '3 hr']].map(([m, l]) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Where (if you know)</span><input class="input" name="location" maxlength="140"></label>
       <label class="field"><span>Reply by</span><input class="input" type="datetime-local" name="deadline" value="${local(dl)}"></label>
@@ -1660,6 +1673,24 @@
       case 'club-menu': clubMenu(c); break;
       case 'edit-club': closeSheet(); editClubSheet(c); break;
       case 'officer-info': closeSheet(); officerInfoSheet(c); break;
+      case 'archive-club': {
+        closeSheet();
+        const yes = d.v === '1';
+        if (!yes) { if (await run(() => rpc('archive_club', { p_club: c.id, p_archive: false }).then(() => true))) { await refresh(); toast(`${c.name} is active again`); } break; }
+        confirmSheet(`Archive ${c.name}?`, 'It disappears from Discover, upcoming events are cancelled, and nobody can join. Members keep their check-in history. You can unarchive it later.', 'Archive club',
+          async () => { await rpc('archive_club', { p_club: c.id, p_archive: true }); await refresh(); toast(`${c.name} archived`); return true; });
+        break; }
+      case 'delete-club': {
+        closeSheet();
+        openSheet('Delete club', `<div class="stack-l"><p>This permanently deletes <strong>${esc(c.name)}</strong>, its events, polls and tasks. It can’t be undone.</p>
+          <p class="footnote">Only possible if nobody has checked in to its events. Otherwise archive it, so members keep their records.</p>
+          <label class="field"><span>Type the club’s name to confirm</span><input class="input" name="confirm" autocomplete="off" placeholder="${esc(c.name)}"></label>
+          <button class="btn primary" type="submit" style="background:var(--danger)">Delete permanently</button></div>`,
+        { onSubmit: async (fd) => {
+          const ok = await run(() => rpc('delete_club', { p_club: c.id, p_confirm_name: fd.get('confirm') || '' }).then(() => true));
+          if (ok) { await refresh(); location.hash = '#/mine'; toast(`${c.name} deleted`); } return !!ok;
+        } });
+        break; }
       case 'step-down': closeSheet(); confirmSheet(`Step down from ${c.name}?`, 'You’ll stay a member. Your position opens up for someone else.', 'Step down', async () => {
         await rpc('remove_officer', { p_club: c.id, p_user: S.user.id }); await refresh(); toast('You stepped down'); return true; }); break;
       case 'invite': inviteSheet(c, d.v); break;
