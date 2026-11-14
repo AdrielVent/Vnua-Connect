@@ -459,3 +459,7 @@ a.card:active, button.card:active { transform: scale(.99); }
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 /* Reduced motion: no drawing animation, but the finished seal is still shown */
 @media (prefers-reduced-motion: reduce) { #ci-result.stamp .seal circle, #ci-result.stamp .seal path { stroke-dashoffset: 0 !important; } }
+
+/* Long invited emails wrap instead of pushing buttons/badges off-screen */
+.slot .spacer, .team .row .spacer, .list-row .spacer, .todo .spacer { min-width: 0; overflow-wrap: anywhere; }
+.slot .btn, .slot .link-btn, .team .row .badge { flex: none; }

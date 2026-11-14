@@ -253,7 +253,7 @@
 
   // ───────────── Pieces ─────────────
   const mono = (c, size = 48) => c.logo_url
-    ? `<img class="logo" src="${esc(c.logo_url)}" alt="" width="${size}" height="${size}" loading="lazy">`
+    ? `<img class="logo" src="${esc(c.logo_url)}" alt="" width="${size}" height="${size}"${size < 64 ? ' loading="lazy"' : ''}>`
     : `<div class="mono" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;background:${esc(c.accent_hex)}">${esc(c.monogram)}</div>`;
   const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const hue = (s) => [...String(s)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
