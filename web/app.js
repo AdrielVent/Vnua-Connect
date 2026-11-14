@@ -23,7 +23,9 @@
     'Outdoors', 'Performing arts', 'Professional', 'Service', 'Social justice', 'Sports', 'Tech', 'Wellness'];
   const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Grad student', 'Alum', 'Faculty/Staff'];
   const CORE = ['President', 'Vice President', 'Treasurer', 'Secretary'];
-  const ACCENTS = [['#1f5a6b', 'Harbor'], ['#8a3b2e', 'Brick'], ['#2c455d', 'Steel'], ['#2f5d3a', 'Pine'], ['#4a3a6b', 'Plum'], ['#7a4f12', 'Clay']];
+  // Club colors for initials (when there's no logo): SHPE navy/orange and AIAA navy/blue only.
+  // Existing clubs keep the color they already chose; uploaded logos are never recolored.
+  const ACCENTS = [['#001f5b', 'SHPE navy'], ['#1a3d6d', 'AIAA navy'], ['#3179a7', 'AIAA blue'], ['#c2410c', 'Orange']];
   const REMINDERS = [[20160, '2 weeks'], [10080, '1 week'], [4320, '3 days'], [1440, '24 hours'], [120, '2 hours'], [60, '1 hour'], [30, '30 min']];
   const NOTIFY = [['all', 'Everything', 'New events, announcements, and reminders for every event'],
     ['rsvp', 'Just what I RSVP to', 'Announcements, plus reminders for events you said you’re going to'],
@@ -129,7 +131,13 @@
     S.blocked = new Set(bl.map((b) => b.club_id));
   }
   let lastLoad = 0;
-  async function refresh() { await run(loadAll); lastLoad = Date.now(); render(); }
+  /** Reload everything and redraw. Returns true only if the reload succeeded (callers must not claim success otherwise). */
+  async function refresh() {
+    const ok = await run(() => loadAll().then(() => true));
+    if (ok) lastLoad = Date.now();
+    render();
+    return !!ok;
+  }
 
   // Feels like an app: fresh data when you come back to it, and the inbox badge stays current.
   const busyTyping = () => $('#sheet-root').innerHTML || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
@@ -902,10 +910,10 @@
       <div class="stats">${stat(members.length, 'Members', 'not counting e-board')}${stat(past.length ? turnout : '–', 'Avg turnout', plural(past.length, 'past event'))}
         ${stat(rs ? pct(sh, rs) : '–', 'RSVPs who came', rs ? `${sh} of ${rs}` : 'no RSVPs yet')}${stat(rating, 'Avg rating', rated.length ? 'names never shown' : 'needs 3+ per event')}</div>
       <div class="card stack recog">
-        <div class="row"><strong class="spacer">Official recognition</strong><span class="footnote">${consented.length}/${RECOGNITION_GOAL} supporters</span></div>
+        <div class="row"><strong class="spacer">Recognition supporters</strong><span class="footnote">${consented.length}/${RECOGNITION_GOAL} supporters · app target</span></div>
         <div class="bar" role="progressbar" aria-valuenow="${consented.length}" aria-valuemin="0" aria-valuemax="${RECOGNITION_GOAL}"><span style="width:${goal}%"></span></div>
         <p class="footnote">${members.length} member${members.length === 1 ? '' : 's'}, ${consented.length} said yes to being counted (e-board not included).
-          ${consented.length >= RECOGNITION_GOAL ? 'That’s enough to apply.' : `${RECOGNITION_GOAL - consented.length} more to reach ${RECOGNITION_GOAL}.`}
+          ${consented.length >= RECOGNITION_GOAL ? 'Supporter target reached. OSLE confirms eligibility and application timing.' : `${RECOGNITION_GOAL - consented.length} more to reach the app’s supporter target of ${RECOGNITION_GOAL}.`}
           Members can switch this on from the club page. This tracks your count; the university decides recognition.</p>
         <div class="officer-actions">
           <button class="btn primary" data-action="recog-mail" data-club="${id}" ${supporters.length ? '' : 'disabled'}>Draft the request email</button>
@@ -1229,25 +1237,36 @@
 
   // ───────────── Pull to refresh (Home Screen app only; Safari tabs have their own) ─────────────
   if (STANDALONE) {
-    let y0 = null, pulling = false, ind = null;
+    // One gesture at a time; vertical pulls only; the indicator is always removed, whatever happens.
+    let start = null, pulling = false, ind = null, busy = false, startRoute = '';
     const PULL = 70;
-    const ready = () => ['discover', 'events', 'mine', 'people', 'inbox'].includes(route().name) && !$('#sheet-root').innerHTML && window.scrollY <= 0;
-    document.addEventListener('touchstart', (e) => { y0 = ready() ? e.touches[0].clientY : null; }, { passive: true });
+    const ready = () => !busy && ['discover', 'events', 'mine', 'people', 'inbox'].includes(route().name) && !$('#sheet-root').innerHTML && window.scrollY <= 0;
+    const clear = () => { ind?.remove(); ind = null; pulling = false; start = null; };
+    document.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || !ready()) { start = null; return; }
+      start = { x: e.touches[0].clientX, y: e.touches[0].clientY }; startRoute = location.hash;
+    }, { passive: true });
     document.addEventListener('touchmove', (e) => {
-      if (y0 === null) return;
-      const dy = e.touches[0].clientY - y0;
-      if (dy <= 0) return;
-      if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.innerHTML = '<span class="ptr-dot"></span>'; document.body.appendChild(ind); }
+      if (!start) return;
+      const dx = e.touches[0].clientX - start.x, dy = e.touches[0].clientY - start.y;
+      if (location.hash !== startRoute || Math.abs(dx) > Math.abs(dy) || window.scrollY > 0) { clear(); return; }   // sideways swipe, scroll or navigation: not a pull
+      if (dy <= 0) { if (ind) { ind.style.setProperty('--p', 0); pulling = false; ind.classList.remove('armed'); } return; }
+      if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.setAttribute('role', 'status'); ind.innerHTML = '<span class="ptr-dot"></span>'; document.body.appendChild(ind); }
       pulling = dy > PULL;
       ind.style.setProperty('--p', Math.min(dy / PULL, 1).toFixed(2));
       ind.classList.toggle('armed', pulling);
       ind.setAttribute('aria-label', pulling ? 'Release to refresh' : 'Pull to refresh');
     }, { passive: true });
+    document.addEventListener('touchcancel', clear, { passive: true });
     document.addEventListener('touchend', async () => {
-      if (y0 === null) return; y0 = null;
-      if (!ind) return;
-      if (pulling) { ind.classList.add('loading'); await refresh(); toast('Up to date'); }
-      ind.remove(); ind = null; pulling = false;
+      if (!start) return;
+      const go = pulling && ind && location.hash === startRoute;
+      if (!go) { clear(); return; }
+      busy = true; start = null; ind.classList.add('loading'); ind.setAttribute('aria-label', 'Refreshing');
+      try {
+        const ok = await refresh();
+        if (ok) toast('Up to date'); else toast('Couldn’t refresh. Check your connection and try again.', true);
+      } finally { busy = false; clear(); }
     });
   }
 

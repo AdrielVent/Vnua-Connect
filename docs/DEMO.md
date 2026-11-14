@@ -15,8 +15,9 @@ Branch **1A since Nov 14**: emails contain only a 6-digit code (`signInEmail: 'c
 ## One-time setup (before Nov 18)
 1. **Demo club (decision: path a, with b as backup).**
    - (a) **SHPE, for real:** Adriel is SHPE's President. Invite the real VP, Treasurer and Secretary from the SHPE club page
-     (Officer team → Invite). Each accepts in their own app (Inbox → Accept). Then publish (SQL editor):
-     `update clubs set is_published = true where name = 'SHPE';` — this only works once all four have accepted.
+     (Officer team → Invite). Each accepts in their own app (Inbox → Accept). After all four roles are accepted,
+     the founder reviews and publishes through the founder dashboard. Do not bypass the four-officer gate.
+     The November 14 live screen still showed "Forming · 1/4 officers"; treat this as blocked until checked again.
    - (b) **Backup, if the e-board can't accept in time:** a separate club named so it can't be mistaken for an official one,
      e.g. "Demo club (Lion's Den walkthrough)", with 3 more Hofstra accounts **you control or friends who agreed**. Same steps.
 2. **Two accounts in the Home Screen app** (this is the fallback for a failed sign-in):
@@ -30,7 +31,7 @@ Branch **1A since Nov 14**: emails contain only a 6-digit code (`signInEmail: 'c
 Use the iPhone 17 you'll present with. Ideally on Hofstra Wi-Fi.
 | # | Do | Expect |
 |---|---|---|
-| 1 | Settings → Safari → Clear History and Website Data. Then text yourself the club link (Club → ⋯ → Share). Tap it. | Safari opens a public page: club name, e-board first names, **Join** / **Help build this group**, "not affiliated" line. No emails. |
+| 1 | Use a private Safari tab or a separate test browser session, without clearing personal browsing data. Open the shared club link (Club → ⋯ → Share). | Safari opens a public page: club name, e-board first names, **Join** / **Help build this group**, "not affiliated" line. No emails. |
 | 2 | Tap **Join**. | Sign-in screen with "Join ⟨club⟩ — sign in first". Button says **Email me a code**. |
 | 3 | Enter the new-student email → send. Open Mail, read the 6-digit code, type it in (or let iOS autofill it). | Signs in, shows Welcome. (Time it: ____ s until the email arrives.) |
 | 4 | Onboarding: name, major, year, 2–3 interests, Continue, Save. | "Continue to ⟨club⟩" → Join sheet opens. |
@@ -50,3 +51,18 @@ Write down anything that looks or behaves differently from this table.
   (`scratchpad/e2e/sim_demo_path.mjs`, password sign-in), and 87/87 website checks passed against the live site.
 - The app now starts even if Google Fonts is slow or blocked (campus Wi-Fi); this is checked on every test run.
 - **Not yet tested by Claude on a physical iPhone, a real inbox, or the Home Screen app.** That's the on-device test above.
+
+## Pitch guardrails added November 14
+- The private November 4 OSLE decisions already followed an appeal and explicitly identify **Fall 2027** as the next
+  application cycle for SHPE/AIAA. Do not say Spring 2027 or calculate a fresh appeal deadline from those letters.
+- An app supporter opt-in is not OSLE's confirmed eligible membership. Say "supporter target" rather than
+  "Hofstra approved" or "enough to apply"; current public documents disagree about including e-board members.
+- Explain A-Z ordering as one design safeguard, not proof that the app prevents cliques or improves belonging.
+- Do not seed fictional participation into the real club. If real officers are not ready by November 18, use the
+  clearly labelled demo club/recording, disclose it, and report only real adoption numbers as traction.
+- Organizer instructions: arrive November 20 by **11:45am**, stay through the competition; four-minute pitch,
+  three-minute Q&A. Team 14 is provisionally 1:49-1:57pm. Photo release is due November 18; presentation is due
+  November 19 by 11:59pm America/New_York. Tell the organizer if audio/video is included and bring a backup.
+- Disclosure draft, revise to match actual use: "I used Perplexity Computer for research and review, and Claude Code
+  for software development and presentation preparation. The product decisions and presentation are mine."
+  No AI assistance during the judged pitch or Q&A.
