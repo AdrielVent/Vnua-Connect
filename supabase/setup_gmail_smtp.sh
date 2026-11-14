@@ -9,17 +9,28 @@ cd "$(dirname "$0")/.."
 echo "Vnua-connect: switch sign-in emails to a 6-digit code"
 echo
 read -r -p "Gmail address that will send the codes: " SMTP_USER
+SMTP_USER="$(echo "$SMTP_USER" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+if [[ "$SMTP_USER" != *@gmail.com && "$SMTP_USER" != *@googlemail.com ]]; then
+  echo "Use a personal Gmail address (…@gmail.com). School accounts like @pride.hofstra.edu usually can't create app passwords."
+  exit 1
+fi
 read -r -s -p "Its 16-character App password (hidden as you type): " SMTP_PASS; echo
-SMTP_PASS="${SMTP_PASS// /}"                      # Google shows it in groups of 4; spaces don't matter
+SMTP_PASS="${SMTP_PASS//[[:space:]]/}"            # Google shows it in groups of 4; spaces don't matter
 [[ "$SMTP_USER" == *@* && ${#SMTP_PASS} -ge 16 ]] || { echo "That doesn't look right. Nothing was changed."; exit 1; }
 export SMTP_USER SMTP_PASS
 
-echo; echo "Changes that will be sent to Supabase (nothing else changes):"
-supabase config diff 2>/dev/null | python3 -c "
+echo; echo "Checking what will change on Supabase…"
+DIFF_OUT="$(supabase config diff --output-format json 2>&1 || true)"
+if ! echo "$DIFF_OUT" | python3 -c "
 import json,sys; t=sys.stdin.read(); j=json.loads(t[t.index('{'):])
-for c in j['changes']: print('  ', '.'.join(c['path']))"
+if j.get('_tag') == 'Error': raise SystemExit(1)
+print('Changes that will be sent to Supabase (nothing else changes):')
+for c in j.get('changes', []): print('  ', '.'.join(c['path']))" 2>/dev/null; then
+  echo "Supabase couldn't compare settings. Its message was:"; echo "$DIFF_OUT" | tail -15
+  echo "Nothing was changed. Copy the lines above to Claude."; exit 1
+fi
 read -r -p "Apply? (y/n) " ok; [[ "$ok" == y* ]] || { echo "Cancelled. Nothing was changed."; exit 1; }
-supabase config push --yes >/dev/null
+PUSH_OUT="$(supabase config push --yes 2>&1)" || { echo "Supabase refused the change:"; echo "$PUSH_OUT" | tail -15; echo "Copy the lines above to Claude."; exit 1; }
 echo "Supabase now sends sign-in email through $SMTP_USER."
 
 # Prove it end to end: send a real code, type it in, verify it with Supabase.
