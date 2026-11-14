@@ -420,3 +420,42 @@ img.avatar.photo { flex: none; border-radius: 50%; object-fit: cover; background
 
 /* Event perks: the one place an event earns a little color, to catch the eye */
 .badge.perk { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* ───── Motion (only where something happened). Principles from ddoemonn/interior (MIT):
+   "Nothing moves unless something happened" and "under reduced motion, the information still arrives".
+   The global prefers-reduced-motion rule above turns every animation/transition below off. ───── */
+:root { --ease-out: cubic-bezier(.2, .8, .2, 1); }
+
+/* Press: a 2% press-in that follows the finger, no bounce */
+.btn, .chip, .chip-check span, .card.club-row, a.card { transition: transform 90ms var(--ease-out), background-color 120ms, opacity 120ms; }
+.btn:active:not(:disabled), .chip:active, .chip-check:active span { transform: scale(.98); }
+a.card:active, button.card:active { transform: scale(.99); }
+
+/* Check-in verified: seal + check drawn once, then it holds */
+#ci-result { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+#ci-result .seal { width: 28px; height: 28px; flex: none; color: var(--success); }
+#ci-result .seal svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#ci-result.stamp .seal circle { stroke-dasharray: 63; stroke-dashoffset: 63; animation: draw 320ms var(--ease-out) forwards; }
+#ci-result.stamp .seal path { stroke-dasharray: 16; stroke-dashoffset: 16; animation: draw 220ms 260ms var(--ease-out) forwards; }
+#ci-result.stamp { animation: verified-bg 900ms var(--ease-out); border-radius: 10px; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes verified-bg { from { background: var(--success-soft); } to { background: transparent; } }
+
+/* Toggle: decisive slide; the thumb widens while held (shows the press registered) */
+.toggle input, .toggle input::after { transition: background-color 180ms var(--ease-out), transform 180ms var(--ease-out), width 120ms var(--ease-out); }
+.toggle input:active::after { width: 32px; }
+.toggle input:checked:active::after { transform: translateX(15px); }
+
+/* Club card → club page: the logo travels into the header (Safari view transitions) */
+.hero-mark { view-transition-name: club-hero; width: max-content; }
+::view-transition-group(club-hero) { animation-duration: 260ms; animation-timing-function: var(--ease-out); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 160ms; }
+
+/* Pull to refresh (Home Screen app): a dot that fills as you pull; spins only while actually loading */
+.ptr { position: fixed; top: calc(env(safe-area-inset-top) + 10px); left: 50%; transform: translateX(-50%); z-index: 15; pointer-events: none; }
+.ptr-dot { display: block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--divider);
+  background: conic-gradient(var(--accent) calc(var(--p, 0) * 360deg), transparent 0); -webkit-mask: radial-gradient(circle, transparent 8px, #000 9px); mask: radial-gradient(circle, transparent 8px, #000 9px); }
+.ptr.loading .ptr-dot { background: none; border-color: var(--divider); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+/* Reduced motion: no drawing animation, but the finished seal is still shown */
+@media (prefers-reduced-motion: reduce) { #ci-result.stamp .seal circle, #ci-result.stamp .seal path { stroke-dashoffset: 0 !important; } }

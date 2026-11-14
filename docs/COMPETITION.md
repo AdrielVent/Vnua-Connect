@@ -9,15 +9,35 @@ Where a source is old or second-hand, it says so.
   — [hofstra.edu/lionsden](https://www.hofstra.edu/lionsden)
 - 2025's page names Barbara Roberts (Entrepreneur-in-Residence) and Natalia Sandor as past judges. The 2026 panel isn't listed.
 
-## The problem (keep these three kinds of claim separate)
-1. **Documented rule:** Hofstra's classification system says registered organizations "must maintain (at all times) an
-   up-to-date membership roster of no less than 15 members on GetInvolvedHU", with case-by-case exceptions.
-   — [Student Organization Classification System, Spring 2017 (PDF)](https://www.hofstra.edu/pdf/studentaffairs/studentactivities/stdact-student-organization-classification-system.pdf).
-   *Caveat: dated 2017; confirm it's current with osle@hofstra.edu before quoting it as today's rule.*
-   A Hofstra guide says new groups must attend a New Student Organization Information Session to get the GetInvolvedHU
-   application, then present to a committee that approves or denies. — [Guide to Pride 2023–24](https://issuu.com/hofstra/docs/guide-to-pride-2324/s/37009159)
-2. **Founder's experience:** Adriel's SHPE and AIAA applications were denied on Nov 4, 2026 (his email thread — his account, not a public record).
+## The problem: locked out of the official system for a semester, with no tool in the meantime
+**Headline:** SHPE and AIAA were denied on **Nov 4, 2026**, nearly two months after Fall applications closed on **Sept 14**.
+New-club applications only open at the start of each semester, so the next chance is when Spring classes begin. Until
+then, these groups have no official tool to organize with. That gap — not just "not enough members" — is what
+Vnua-connect is for.
+
+Keep these three kinds of claim separate:
+1. **Hofstra's documented process** (current source first):
+   - New-club applications open **Sept 1–14** for Fall ("Applications open on GIHU on the first day of classes each
+     semester"). They require **a constitution, a full e-board of President, Vice President, Secretary and Treasurer, and a
+     roster of 15 additional students** (so 19 people), then a presentation to a **Recognition Committee** (two e-board
+     members must attend). Denied groups can appeal "within 10 days of the decision".
+     — [OSLE, "Fall New Club Application", GetInvolvedHU (posted June 13, 2025)](https://hofstra.campuslabs.com/engage/news/323408)
+   - The organization handbook adds: a **full-time Hofstra faculty/staff advisor** is required; the New Club Registration
+     Committee is "chaired by the Associate Director of Student Leadership and Engagement with representatives from OSLE,
+     Recreation and Intramural Sports, Event Management and the Student Government Association"; and until a group is
+     recognized, its "activities … will be limited to meetings and membership recruitment ONLY."
+     — [Undergraduate Student Organizations Handbook (PDF, dated Sept 2016)](https://www.hofstra.edu/pdf/studentaffairs/studentactivities/osle-handbook-undergraduate-student-organizations.pdf)
+2. **Founder's experience:** Adriel's SHPE and AIAA applications were denied Nov 4, 2026 (his email thread — his
+   account, not a public record). With the 10-day appeal window, the appeal deadline was about Nov 14.
 3. **Not yet proven:** demand beyond SHPE/AIAA. Don't claim it. Show what you can measure by Friday (see *How to win*).
+
+**We didn't invent our rules — they're Hofstra's own recognition numbers.** Vnua-connect requires the same four officers
+(President, VP, Treasurer, Secretary) before a club goes live, and its recognition counter targets **15 members not
+counting the e-board** — exactly the "15 additional students" the application asks for.
+
+**Compliance note for Q&A (Erick Hunt):** because unrecognized groups are limited to meetings and recruitment, frame
+Vnua-connect events as interest meetings and recruitment, not official university programming. Vnua-connect books no
+rooms and claims no Hofstra status.
 
 ## Why clubs matter (evidence, not hype)
 - Ohio State's 2024 Student Life Survey: involvement had strong associations with sense of belonging, even controlling
@@ -29,7 +49,7 @@ Where a source is old or second-hand, it says so.
 ## The competition
 | | What it is | Who it serves | Where Vnua-connect is different |
 |---|---|---|---|
-| **GetInvolvedHU** (Anthology Engage) | Hofstra's official platform. Org registration/renewal, co-curricular records, room reservations, event check-in. — [Anthology Engage overview (PDF)](https://www.anthology.com/sites/default/files/2022-06/Engage-Overview.pdf) | **Recognized** organizations | A group can't use it until it's recognized (info session → committee → 15-member roster). Vnua-connect is for the stage *before* that. **Position it as an on-ramp to GIHU, not a replacement.** |
+| **GetInvolvedHU** (Anthology Engage) | Hofstra's official platform. Org registration/renewal, co-curricular records, room reservations, event check-in. — [Anthology Engage overview (PDF)](https://www.anthology.com/sites/default/files/2022-06/Engage-Overview.pdf) | **Recognized** organizations | A group can't use it until it's recognized: apply in the 2-week window → constitution, 4 officers, 15 more members, advisor → committee. Vnua-connect is for the stage *before* that. **Position it as an on-ramp to GIHU, not a replacement.** |
 | Engage's ownership | Anthology went through Chapter 11; Engage was sold to Encoura LE (court approval announced Nov 24, 2025). — [Anthology press release](https://www.anthology.com/news/anthology-receives-approval-for-sale-transactions), [Davis Polk](https://www.davispolk.com/experience/anthology-chapter-11-restructuring) | — | Fact only. **Don't** use it to attack Hofstra's vendor in front of Hofstra judges. |
 | **CampusGroups**, **Modern Campus Involve** (formerly Presence) | Institution-wide engagement suites; pricing is quote-based, no free plan listed. — [SaaSworthy](https://www.saasworthy.com/product/campusgroups/pricing), [Software Advice](https://www.softwareadvice.com/gamification/presence-profile/) | Universities buy them for recognized orgs | Same institutional model as GIHU. Vnua-connect is free for students and built for groups the institution hasn't recognized yet. |
 | **GroupMe / Discord / Instagram** | Free chat | Any group | Students mute big GroupMe chats ([Duke Chronicle](https://www.dukechronicle.com/article/2022/09/092322-gao-groupme)); student orgs report unwanted members/messages ([Daily Northwestern](https://dailynorthwestern.com/2024/11/06/lateststories/groupme-chatbots-raise-frustrations-for-student-organizations)). Chat keeps no attendance, no roster, no consent record — nothing to show a recognition committee. |
@@ -70,7 +90,8 @@ Where a source is old or second-hand, it says so.
 - Sign-in sends a link until Gmail SMTP is set up (`supabase/setup_gmail_smtp.sh`); codes are built and tested but not live.
 - Not yet tested on a physical iPhone by anyone but you; the iPhone app is behind the web app.
 - Not affiliated with or endorsed by Hofstra; publishing on Vnua-connect is not recognition.
-- The 15-member rule source is from 2017 — confirm it's current.
+- The handbook PDF is dated 2016; the application requirements come from OSLE's June 2025 GetInvolvedHU post.
+- Unrecognized groups are limited to meetings and recruitment under Hofstra policy; Vnua-connect doesn't change that.
 
 ## Proof (re-run Nov 14, 2026 6:58 AM EST, commit 0d6f30a, live site v15)
 - Database: 9 test suites (security, v2–v9) passed on a fresh database with every migration; production is up to date with the repo.

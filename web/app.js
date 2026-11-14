@@ -176,7 +176,20 @@
     const [, name = 'discover', id] = (location.hash || '#/discover').split('/');
     return { name, id };
   }
-  window.addEventListener('hashchange', () => { inboxFresh = false; closeSheet(); render(); window.scrollTo(0, 0); });
+  const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let sharedOpen = false;                 // set when a club card is tapped, so its logo can travel into the club page
+  window.addEventListener('hashchange', () => {
+    inboxFresh = false; closeSheet();
+    const go = () => { render(); window.scrollTo(0, 0); };
+    if (sharedOpen && document.startViewTransition && !reducedMotion()) { sharedOpen = false; document.startViewTransition(go); }
+    else { sharedOpen = false; go(); }
+  });
+  // Club card → club page: name the tapped card's logo so the browser can morph it into the page header.
+  document.addEventListener('click', (ev) => {
+    const row = ev.target.closest('a.club-row'); if (!row || !document.startViewTransition || reducedMotion()) return;
+    document.querySelectorAll('[style*="view-transition-name"]').forEach((n) => { if (!n.closest('.hero-mark')) n.style.viewTransitionName = ''; });
+    const logo = row.querySelector('.mono, img.logo'); if (logo) { logo.style.viewTransitionName = 'club-hero'; sharedOpen = true; }
+  }, true);
 
   const triedFetch = new Set();       // ids we already refetched for, so a truly missing item shows "not found"
   const TABS = ['discover', 'events', 'mine', 'people', 'profile'];
@@ -602,7 +615,7 @@
       <div class="stack-l">
         ${c.archived_at ? `<div class="card notice-card archived">${icon.archive}<div><strong>Archived ${esc(fmt.short(new Date(c.archived_at)))}</strong>
           <span class="muted">Read-only. Members keep their check-in history.${isPresident(c.id) ? ' Unarchive it from the More menu.' : ''}</span></div></div>` : ''}
-        <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
+        <div class="stack" style="gap:10px"><div class="hero-mark">${mono(c, 76)}</div><h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
           <p class="muted">${esc(c.blurb)}</p><div class="badges">${badge(c.interest)}${clubStatusBadge(c)}${recogLabel[c.recognition] ? badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '') : ''}${c.funded ? badge('Funded', 'accent') : ''}</div></div>
         ${invite ? `<div class="card stack invite-card"><strong>You’re invited to be ${esc(invite.position)}</strong>
           <p class="muted" style="font-size:15px">If you accept, your name, position and school email show on this page so students can reach you.</p>
@@ -1066,7 +1079,10 @@
     const out = $('#ci-result'); if (!res || !out) return;
     const name = res.record.attendee_name;
     out.className = 'result ' + (res.status === 'recorded' ? 'ok' : 'warn');
-    out.textContent = res.status === 'recorded' ? `${name} checked in` : `${name} was already checked in`;
+    out.innerHTML = res.status === 'recorded'
+      ? `<span class="seal" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg></span><span><strong>Verified</strong> · ${esc(name)} checked in</span>`
+      : `${esc(name)} was already checked in`;
+    if (res.status === 'recorded') { out.classList.remove('stamp'); void out.offsetWidth; out.classList.add('stamp'); }
     if (res.status === 'recorded' && navigator.vibrate) navigator.vibrate(30);
     ciReload(id);
   }
@@ -1199,6 +1215,30 @@
     run(() => rpc('mark_notifications_read', { p_ids: ids })).then(() => { const t = new Date().toISOString(); S.notifs.forEach((n) => { if (ids.includes(n.id)) n.read_at = t; }); });
   };
 
+  // ───────────── Pull to refresh (Home Screen app only; Safari tabs have their own) ─────────────
+  if (STANDALONE) {
+    let y0 = null, pulling = false, ind = null;
+    const PULL = 70;
+    const ready = () => ['discover', 'events', 'mine', 'people', 'inbox'].includes(route().name) && !$('#sheet-root').innerHTML && window.scrollY <= 0;
+    document.addEventListener('touchstart', (e) => { y0 = ready() ? e.touches[0].clientY : null; }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (y0 === null) return;
+      const dy = e.touches[0].clientY - y0;
+      if (dy <= 0) return;
+      if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.innerHTML = '<span class="ptr-dot"></span>'; document.body.appendChild(ind); }
+      pulling = dy > PULL;
+      ind.style.setProperty('--p', Math.min(dy / PULL, 1).toFixed(2));
+      ind.classList.toggle('armed', pulling);
+      ind.setAttribute('aria-label', pulling ? 'Release to refresh' : 'Pull to refresh');
+    }, { passive: true });
+    document.addEventListener('touchend', async () => {
+      if (y0 === null) return; y0 = null;
+      if (!ind) return;
+      if (pulling) { ind.classList.add('loading'); await refresh(); toast('Up to date'); }
+      ind.remove(); ind = null; pulling = false;
+    });
+  }
+
   // ───────────── Founder dashboard ─────────────
   // Only for accounts the database marks as founder (profiles.is_platform_admin), and only after the security question.
   // Every check happens on the server; this screen just shows what founder_overview() returns.
@@ -1313,7 +1353,8 @@
       <div class="stack"><div class="section-header">Involvement record</div><div class="card" id="involvement">
         <div class="list-row"><span class="spacer">Clubs</span><strong>${active}</strong></div>
         <div class="list-row"><span class="spacer">Events attended</span><strong id="inv-count">…</strong></div><div id="inv-list"></div></div>
-        <p class="footnote">Your check-ins, kept so you can show what you’ve been part of.</p></div>
+        <p class="footnote">Every check-in an officer verified. Download it for a resume or application.</p>
+        <button class="btn secondary" data-action="involvement-csv" id="inv-dl" disabled>Download my involvement record</button></div>
       <div class="stack"><div class="section-header">Privacy</div><div class="card toggles">
         ${toggle('discoverable', 'Show me in People', 'Students with the same interests can find you.', u.discoverable).replace('name="discoverable"', 'data-privacy="discoverable"')}
         ${toggle('leaderboard', 'Show me on club leaderboards', 'Members see who comes most. Officers always see attendance.', u.leaderboard).replace('name="leaderboard"', 'data-privacy="leaderboard"')}</div></div>
@@ -1328,16 +1369,31 @@
       <div class="stack"><div class="section-header">About</div><div class="card stack about">
         <p><strong>Vnua-connect is student-run.</strong> It is not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p>
         <p class="footnote">Being listed or published here is not official university recognition. Clubs apply for that through ${esc(CFG.campus.name)}’s own process.</p>
-        <p class="footnote">To run the service and see whether it’s working, Vnua-connect’s founder can see activity across all clubs: who joined which clubs, check-ins, RSVPs and when people last signed in. It is never sold or shared.</p></div></div>
+        <p class="footnote">To run the service and see whether it’s working, Vnua-connect’s founder can see activity across all clubs: who joined which clubs, check-ins, RSVPs and when people last signed in. It is never sold or shared.</p>
+        <p class="footnote">Vnua-connect is an on-ramp, not a replacement. Official recognition goes through
+          <a href="https://hofstra.campuslabs.com/engage/" target="_blank" rel="noopener noreferrer">GetInvolvedHU</a>
+          (<a href="https://hofstra.campuslabs.com/engage/news/323408" target="_blank" rel="noopener noreferrer">new club application</a>,
+          <a href="https://www.hofstra.edu/pdf/studentaffairs/studentactivities/osle-handbook-undergraduate-student-organizations.pdf" target="_blank" rel="noopener noreferrer">OSLE handbook</a>).</p></div></div>
       <div class="stack"><div class="section-header">Help</div><div class="card">
         <div class="list-row"><span class="spacer muted" style="font-size:15px">On iPhone: Share → Add to Home Screen to use it like an app</span></div>
         <div class="list-row"><a href="prototype/">Original design prototype</a></div></div></div>
       <div class="card stack"><button class="btn secondary" data-action="signout">Sign out</button><button class="btn danger" data-action="delete-account">Delete account</button></div></div>`;
   }
+  let invRows = [];
+  /** Involvement record: verified check-ins, oldest first, with the clubs that hosted each event. */
+  function involvementCsv(rows) {
+    const c = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+    const out = ['date,event,hosted_by,checked_in_by,how'];
+    rows.slice().reverse().forEach((r) => { const e = event(r.event_id);
+      out.push([r.recorded_at.slice(0, 10), c(e?.title || 'Event'), c(e ? hostNames(e) : ''), c(r.recorded_by_name), r.mode].join(',')); });
+    return `# Vnua-connect involvement record for ${S.user.name} (${S.user.email}), exported ${new Date().toISOString().slice(0, 10)}\n`
+      + `# Each row is a check-in recorded by a club officer. Vnua-connect is student-run and not affiliated with Hofstra University.\n` + out.join('\n');
+  }
   after.profile = async () => {
     const rows = await run(() => q(sb.from('attendance').select('*').eq('user_id', S.user.id).is('removed_at', null).order('recorded_at', { ascending: false })));
     if (!rows || !$('#inv-count')) return;
     $('#inv-count').textContent = rows.length;
+    invRows = rows; const dl = $('#inv-dl'); if (dl) dl.disabled = !rows.length;
     $('#inv-list').innerHTML = rows.map((r) => `<div class="list-row"><div><div style="font-weight:600;font-size:15px">${esc(event(r.event_id)?.title || 'Event')}</div><div class="footnote">${esc(fmt.day(new Date(r.recorded_at)))}</div></div></div>`).join('');
   };
   /** Your photo (or initials) with a tap target to add/change it. Optional; shown only to signed-in students. */
@@ -1816,6 +1872,7 @@
       case 'cancel-add-account': S.adding = false; render(); break;
       case 'switch-account': switchAccount(d.id); break;
       case 'set-password': passwordSheet(); break;
+      case 'involvement-csv': if (invRows.length) download(`involvement-record-${fileSafe(S.user.name)}.csv`, 'text/csv', involvementCsv(invRows)); break;
       case 'remove-avatar': {
         const old = S.user.avatar_url;
         if (await run(() => rpc('set_avatar', { p_url: null }).then(() => true))) {
