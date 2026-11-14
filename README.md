@@ -3,7 +3,7 @@
 A home for emerging, student-led interest clubs at Hofstra.
 
 **Students**
-- Sign in with their Hofstra email (link today; 6-digit code once SMTP is set up) or a password they set; stay signed in; switch between accounts on one phone.
+- Sign in with a 6-digit code emailed to their Hofstra address, or a password they set; stay signed in; switch between accounts on one phone.
 - Quick profile: name, optional photo, major, year, up to 3 interests, what they can help with, contact details they choose to share.
 - Discover clubs listed A–Z (never by size or popularity), "Picked for you" by interests; join, or offer to help build a club.
 - Events with perks (Free food, Free swag, Free resources, Prizes, Networking, Beginner-friendly), "First time?" info, RSVP, calendar, QR check-in pass, 1–5 star ratings officers can't trace to a person.
@@ -20,7 +20,7 @@ Shared club and event links open a public page before sign-up. No group chat, fe
 
 Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra University, and appearing on it doesn't mean university recognition.
 
-**Sign-in, honestly:** today the sign-in email contains a link (Supabase's built-in sender). A 6-digit code needs custom SMTP; once that's set up and a real code has arrived, set `signInEmail: 'code'` in `web/config.js`. Email links open in Safari, so inside an iPhone Home Screen install, sign in with a password (set one in Profile).
+**Sign-in:** the email contains only a 6-digit code (Gmail SMTP + `supabase/templates/code.html`, set up with `supabase/setup_gmail_smtp.sh`; verified with a real code on Nov 14, 2026). Codes work inside an iPhone Home Screen install too. Password sign-in stays available as a fallback.
 
 **Founder dashboard & privacy:** the founder's account (`profiles.is_platform_admin`) can open Profile → Founder dashboard after answering a security question (stored only as a bcrypt hash, set with the service key, never in this repo). It shows usage across all clubs and students. Students are told this in Profile → About.
 

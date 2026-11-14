@@ -6,14 +6,11 @@ Live path (do not add steps):
 ## Two iPhone facts that shape the demo
 1. **Links always open in Safari, not in the Home Screen app.** Tapping a shared link from Messages/Mail opens Safari.
    So the "cold shared link" part is shown in **Safari** (that's what a real student sees from a group chat).
-2. **The Home Screen app has its own storage, separate from Safari.** An email *sign-in link* signs you in to Safari, never to
-   the installed app. Inside the installed app, sign in with a **password** (or a code, once SMTP is working).
+2. **The Home Screen app has its own storage, separate from Safari.** That's why sign-in uses a 6-digit **code**: it works in
+   Safari and inside the installed app alike (a link would only ever sign you in to Safari).
 
-## Sign-in: which branch are we on?
-`web/config.js` → `signInEmail`.
-- `'link'` (today): emails contain a link. The app says "Email me a sign-in link". **Branch 1B.**
-- `'code'`: only switch after custom SMTP + the code template are set up **and** a real code has arrived and worked twice
-  from a cold browser on the iPhone. Then bump `?v=` in `index.html` and push. **Branch 1A.**
+## Sign-in
+Branch **1A since Nov 14**: emails contain only a 6-digit code (`signInEmail: 'code'` in `web/config.js`). A code works in Safari *and* in the Home Screen app, so the email-link limitation is gone. Password sign-in remains the fallback.
 
 ## One-time setup (before Nov 18)
 1. **Demo club (decision: path a, with b as backup).**
@@ -23,7 +20,7 @@ Live path (do not add steps):
    - (b) **Backup, if the e-board can't accept in time:** a separate club named so it can't be mistaken for an official one,
      e.g. "Demo club (Lion's Den walkthrough)", with 3 more Hofstra accounts **you control or friends who agreed**. Same steps.
 2. **Two accounts in the Home Screen app** (this is the fallback for a failed sign-in):
-   - In **Safari**: sign in as yourself (email link) → Profile → **Set a password**.
+   - In **Safari**: sign in as yourself (email code) → Profile → **Set a password**.
    - Do the same for a second Hofstra account you control (the "new student" account).
    - Add to Home Screen (Share → Add to Home Screen) → open it → **Sign in with a password** as yourself →
      Profile → **Add another account** → password → the second account.
@@ -34,8 +31,8 @@ Use the iPhone 17 you'll present with. Ideally on Hofstra Wi-Fi.
 | # | Do | Expect |
 |---|---|---|
 | 1 | Settings → Safari → Clear History and Website Data. Then text yourself the club link (Club → ⋯ → Share). Tap it. | Safari opens a public page: club name, e-board first names, **Join** / **Help build this group**, "not affiliated" line. No emails. |
-| 2 | Tap **Join**. | Sign-in screen with "Join ⟨club⟩ — sign in first". Button says **Email me a sign-in link**. |
-| 3 | Enter the new-student email → send. Open Mail **on this iPhone**, tap the link. | Safari signs in, shows Welcome. (Time it: ____ s until the email arrives.) |
+| 2 | Tap **Join**. | Sign-in screen with "Join ⟨club⟩ — sign in first". Button says **Email me a code**. |
+| 3 | Enter the new-student email → send. Open Mail, read the 6-digit code, type it in (or let iOS autofill it). | Signs in, shows Welcome. (Time it: ____ s until the email arrives.) |
 | 4 | Onboarding: name, major, year, 2–3 interests, Continue, Save. | "Continue to ⟨club⟩" → Join sheet opens. |
 | 5 | Pick how involved, tick "Count me as a supporter…", **Join**. | "You're a member". |
 | 6 | Back → Discover. | The note "Every club gets the same spot here…" is visible. |
