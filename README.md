@@ -1,6 +1,22 @@
 # Vnua-connect — Giving clubs a chance.
 
-A home for emerging, student-led interest clubs at Hofstra. Students sign in with a link emailed to their Hofstra address (or a password they set), set up a quick profile (major, year, up to 3 interests), and join or start a club. A club goes live once its president, VP, treasurer and secretary accept. Officers get check-in, automatic event reminders, 1–5 star ratings where officers only ever see averages (never who rated), member rankings, friendly "still interested?" check-ins, and the member list they need to apply for official recognition. No group chat: members only get the notifications they choose. Shared club and event links work before someone signs up, so a link in a group chat or on a poster turns into a join (or an offer to help build the club). Officers get a "Needs attention" list, follow-up tasks, and "Find a time" polls.
+A home for emerging, student-led interest clubs at Hofstra.
+
+**Students**
+- Sign in with their Hofstra email (link today; 6-digit code once SMTP is set up) or a password they set; stay signed in; switch between accounts on one phone.
+- Quick profile: name, optional photo, major, year, up to 3 interests, what they can help with, contact details they choose to share.
+- Discover clubs listed A–Z (never by size or popularity), "Picked for you" by interests; join, or offer to help build a club.
+- Events with perks (Free food, Free swag, Free resources, Prizes, Networking, Beginner-friendly), "First time?" info, RSVP, calendar, QR check-in pass, 1–5 star ratings officers can't trace to a person.
+- Only the notifications they choose (Everything / What I RSVP to / Nothing); People tab matches on shared interests or major; LinkedIn only when both sides choose "Open to connect".
+
+**Officers**
+- A club goes live only once its president, VP, treasurer and secretary accept. Logo, edit club, invite/step down, archive (keeps history) or delete (only without check-ins).
+- Check-in (scan, look up, guest, corrections that keep the original), reminders they pick, announcements, "Find a time" polls, follow-up tasks, "Needs attention" list.
+- Dashboard: turnout, RSVP→came rate, members ranked by check-ins (e-board excluded), filters, CSV, and the recognition count of members who explicitly said yes to being counted, with a draft request email.
+
+**Founder:** a dashboard across every club and student (behind a security question), with publish/unpublish.
+
+Shared club and event links open a public page before sign-up. No group chat, feed or points.
 
 Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra University, and appearing on it doesn't mean university recognition.
 

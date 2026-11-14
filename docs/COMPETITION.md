@@ -72,9 +72,12 @@ Where a source is old or second-hand, it says so.
 - Not affiliated with or endorsed by Hofstra; publishing on Vnua-connect is not recognition.
 - The 15-member rule source is from 2017 — confirm it's current.
 
-## Proof (re-run Nov 14, 2026 ~1:21 AM EST, commit 20722e9)
-- Database security suites (local Postgres): security, v2, v3, v4, v5 — all passed.
-- Web end-to-end against the **live** site (WebKit, iPhone emulation): **70/70** checks passed; all test data deleted.
-- Demo path against the live site in **iOS 26.5 Safari, iPhone 17 Pro Simulator** (not a physical phone): see report.
-- iPhone app: builds; 17 unit tests pass (against demo data, not production).
-- Reminder scheduler on the live database: delivered a test reminder.
+## Proof (re-run Nov 14, 2026 6:58 AM EST, commit 0d6f30a, live site v15)
+- Database: 9 test suites (security, v2–v9) passed on a fresh database with every migration; production is up to date with the repo.
+- Website end-to-end against the **live** site (WebKit, iPhone emulation): **87/87** checks passed; all test data deleted.
+- Demo path against the live site in real **iOS 26.5 Safari, iPhone 17 Pro Simulator** (not a physical phone): passed
+  (6 taps and 6 text fields needed a scripted fallback, a simulator-automation limit).
+- Xcode app: builds; 17 unit tests pass (demo data, not production).
+- Reminder scheduler on the live database delivered a test reminder.
+- Not yet verified: a physical iPhone, a real inbox (sign-in email), the Home Screen install.
+- Real usage at that time: 1 student, SHPE unpublished (Vice President invite pending), 0 "count me" taps.

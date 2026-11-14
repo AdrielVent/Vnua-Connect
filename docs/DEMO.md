@@ -49,7 +49,7 @@ Write down anything that looks or behaves differently from this table.
 - No Wi-Fi → nothing works offline; use the screen recording from the rehearsal.
 
 ## What was tested where (keep this honest in the pitch)
-- iPhone 17 Pro **Simulator**, real iOS 26.5 Mobile Safari, driven by Apple's safaridriver (`scratchpad/e2e/sim_demo_path.mjs`):
-  the whole path above, using password sign-in. Some taps/typing needed a scripted fallback (simulator automation limits).
-- WebKit on a Mac (Playwright): 59 checks across every feature.
+- Nov 14, 6:58 AM: the whole path above passed in real iOS 26.5 Safari on the iPhone 17 Pro **Simulator**
+  (`scratchpad/e2e/sim_demo_path.mjs`, password sign-in), and 87/87 website checks passed against the live site.
+- The app now starts even if Google Fonts is slow or blocked (campus Wi-Fi); this is checked on every test run.
 - **Not yet tested by Claude on a physical iPhone, a real inbox, or the Home Screen app.** That's the on-device test above.
