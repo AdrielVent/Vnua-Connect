@@ -35,6 +35,9 @@
   const NEWCOMER = [['who', 'Who it’s for', 'e.g. Anyone curious, no experience needed'], ['experience', 'Experience needed', 'e.g. None'],
     ['bring', 'What to bring', 'e.g. Nothing, or a laptop'], ['cost', 'Cost', 'e.g. Free'], ['meet', 'Where exactly to go', 'e.g. Room 141, second floor, door on the left'],
     ['happens', 'What happens', 'e.g. 10 min intros, then we split into teams'], ['contact', 'Questions before you come', 'e.g. Text Pat, or email the club']];
+  // What an event offers. Fixed list (the server rejects anything else).
+  const PERKS = [['food', 'Free food'], ['swag', 'Free swag'], ['resources', 'Free resources'], ['prizes', 'Prizes'], ['networking', 'Networking'], ['beginners', 'Beginner-friendly']];
+  const perkLabel = Object.fromEntries(PERKS);
   const HELP = ['Event setup', 'Design', 'Outreach', 'Social media', 'Tech projects', 'Fundraising', 'Writing', 'Photography', 'Running meetings'];
   const LOOKING = ['Community', 'Friends', 'Leadership experience', 'A project', 'Mentorship', 'Career connections'];
 
@@ -241,16 +244,21 @@
   function statusBadge(e) {
     return e.status === 'rescheduled' ? badge('Rescheduled', 'warning') : e.status === 'cancelled' ? badge('Cancelled', 'warning') : '';
   }
+  /** Perk tags for an event; `max` limits how many show on compact cards. */
+  function perkBadges(e, max = 6) {
+    const p = (e.perks || []).filter((k) => perkLabel[k]); if (!p.length) return '';
+    return p.slice(0, max).map((k) => `<span class="badge perk">${esc(perkLabel[k])}</span>`).join('') + (p.length > max ? `<span class="badge perk">+${p.length - max}</span>` : '');
+  }
   const eventRow = (e) => `<a class="card row${e.status === 'cancelled' ? ' cancelled' : ''}" href="#/event/${e.id}" style="align-items:flex-start">
     <div class="date-chip"><span class="dow">${fmt.dow(e.start)}</span><span class="day">${e.start.getDate()}</span></div>
     <div class="spacer"><div class="event-title">${esc(e.title)}</div>
     <div class="muted" style="font-size:15px">${fmt.time(e.start)}${e.location ? ' · ' + esc(e.location) : ''}</div>
     <div class="footnote">${esc(hostNames(e))}</div>
-    <div class="badges">${statusBadge(e)}${S.rsvps.has(e.id) ? badge('Going', 'success') : ''}</div></div></a>`;
+    <div class="badges">${statusBadge(e)}${S.rsvps.has(e.id) ? badge('Going', 'success') : ''}${perkBadges(e, 3)}</div></div></a>`;
   const eventCard = (e) => `<a class="card" href="#/event/${e.id}"><div class="kicker">${esc(fmt.day(e.start))}</div>
     <div class="event-title" style="margin:6px 0;min-height:2.8em">${esc(e.title)}</div>
     <div class="footnote" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmt.time(e.start)}${e.location ? ' · ' + esc(e.location) : ''}</div>
-    ${S.rsvps.has(e.id) ? `<div class="badges">${badge('Going', 'success')}</div>` : ''}</a>`;
+    ${S.rsvps.has(e.id) || e.perks?.length ? `<div class="badges">${S.rsvps.has(e.id) ? badge('Going', 'success') : ''}${perkBadges(e, 2)}</div>` : ''}</a>`;
   function newcomerHTML(n) {
     const rows = NEWCOMER.filter(([k]) => n?.[k]);
     if (!rows.length) return '';
@@ -311,6 +319,7 @@
       box.innerHTML = `<div class="stack-l" style="padding-top:24px">
         <div class="stack" style="gap:8px">${e.status === 'cancelled' ? badge('Cancelled', 'warning') : e.status === 'rescheduled' ? badge('Rescheduled', 'warning') : ''}
           <h1 style="font-size:30px;font-weight:800">${esc(e.title)}</h1>
+          ${e.perks?.length ? `<div class="badges">${perkBadges(e)}</div>` : ''}
           <div style="color:var(--accent);font-weight:600">${esc((e.hosts || []).map((h) => h.name).join(' + '))}</div></div>
         <dl class="card facts"><div><dt>When</dt><dd>${esc(fmt.full(st))}</dd></div>${e.location ? `<div><dt>Where</dt><dd>${esc(e.location)}</dd></div>` : ''}</dl>
         ${newcomerHTML(e.newcomer)}
@@ -917,14 +926,17 @@
   function eventsView() {
     const now = new Date();
     const list = visibleEvents().filter((e) => e.end > new Date(now - 864e5) && (S.evScope === 'all' ? true
-      : S.evScope === 'mine' ? e.hosts.some((h) => isMember(h)) : S.rsvps.has(e.id)));
+      : S.evScope === 'mine' ? e.hosts.some((h) => isMember(h)) : S.rsvps.has(e.id)) && (!S.perk || (e.perks || []).includes(S.perk)));
+    const perkChips = [`<button class="chip" data-action="ev-perk" data-v="" aria-pressed="${!S.perk}">Any</button>`]
+      .concat(PERKS.map(([k, l]) => `<button class="chip" data-action="ev-perk" data-v="${k}" aria-pressed="${S.perk === k}">${l}</button>`)).join('');
     const days = [];
     list.forEach((e) => { const last = days[days.length - 1]; if (last && sameDay(last[0], e.start)) last[1].push(e); else days.push([e.start, [e]]); });
     const seg = (v, l) => `<button data-action="ev-scope" data-v="${v}" aria-pressed="${S.evScope === v}">${l}</button>`;
     return `${titleBar('Events')}<div class="stack-l">
       <div class="segmented" role="group" aria-label="Show">${seg('all', 'All events')}${seg('mine', 'My clubs')}${seg('going', 'Going')}</div>
+      <div class="chips" role="group" aria-label="Only events with">${perkChips}</div>
       ${days.map(([d, evs]) => `<div class="stack"><div class="section-header">${sameDay(d, now) ? 'Today' : esc(fmt.day(d))}</div><div class="list">${evs.map(eventRow).join('')}</div></div>`).join('')
-        || '<div class="empty"><h2>No events</h2><p>Join a club or RSVP to see events here.</p></div>'}</div>`;
+        || (S.perk ? `<div class="empty"><h2>Nothing with ${esc(perkLabel[S.perk].toLowerCase())} yet</h2><p>Try another filter.</p></div>` : '<div class="empty"><h2>No events</h2><p>Join a club or RSVP to see events here.</p></div>')}</div>`;
   }
   function eventView(id) {
     const e = event(id);
@@ -934,6 +946,7 @@
       <div class="stack-l">
         <div class="stack" style="gap:8px">${statusBadge(e) ? `<div>${statusBadge(e)}</div>` : ''}
           <h1 style="font-size:28px;font-weight:800">${esc(e.title)}</h1>
+          ${e.perks?.length ? `<div class="badges">${perkBadges(e)}</div>` : ''}
           <div style="color:var(--accent);font-weight:600;font-size:15px">${e.hosts.map((h) => club(h) ? `<a href="#/club/${h}" style="text-decoration:none">${esc(club(h).name)}</a>` : '').join(' + ')}</div></div>
         ${e.status === 'rescheduled' && e.previous_start ? `<p class="notice warning">Moved from ${esc(fmt.full(new Date(e.previous_start)))}</p>` : ''}
         ${!live ? '<p class="notice warning"><strong>This event was cancelled.</strong></p>' : ''}
@@ -1530,6 +1543,8 @@
       <label class="field"><span>Starts</span><input class="input" name="start" type="datetime-local" value="${local(v.start)}" required></label>
       <label class="field"><span>Length</span><select class="input" name="duration">${[30, 45, 60, 90, 120, 180, 240].concat([30, 45, 60, 90, 120, 180, 240].includes(v.duration_minutes) ? [] : [v.duration_minutes]).map((m) => `<option value="${m}" ${m === v.duration_minutes ? 'selected' : ''}>${m < 60 ? m + ' min' : m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : m / 60 + ' hr'}</option>`).join('')}</select></label>
       <label class="field"><span>Where</span><input class="input" name="location" maxlength="140" value="${esc(v.location)}" placeholder="Building and room"></label>
+      <div class="field"><span>What’s in it for people?</span><div class="chip-wrap">${PERKS.map(([k, l]) => `<label class="chip-check"><input type="checkbox" name="perk" value="${k}" ${(v.perks || []).includes(k) ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+        <span class="footnote">Shown on the event card so it catches people’s eye. Only tick what’s really there.</span></div>
       <label class="field"><span>Details</span><textarea class="input" name="details" maxlength="2000" placeholder="What it is, in a sentence or two">${esc(v.details)}</textarea></label>
       <details class="card newcomer-form" ${e && Object.keys(nc).length ? 'open' : ''}><summary><strong>“First time?” info</strong> <span class="footnote">· recommended</span></summary>
         <p class="footnote" style="margin:8px 0 4px">Shown on the event page and on shared links, so someone new knows what to expect without having to ask.</p>
@@ -1543,7 +1558,7 @@
       const title = (fd.get('title') || '').trim(); if (title.length < 2) { toast('Give the event a title.', true); return false; }
       const start = new Date(fd.get('start')); if (isNaN(start)) { toast('Pick a start time.', true); return false; }
       const newcomer = Object.fromEntries(NEWCOMER.map(([k]) => [k, (fd.get('nc_' + k) || '').trim()]).filter(([, x]) => x));
-      const common = { p_title: title, p_starts_at: start.toISOString(), p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(),
+      const common = { p_perks: fd.getAll('perk'), p_title: title, p_starts_at: start.toISOString(), p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(),
         p_details: (fd.get('details') || '').trim(), p_reminders: fd.getAll('rem').map(Number), p_newcomer: newcomer };
       const ok = await run(() => (e ? rpc('update_event', { p_event: e.id, ...common }) : rpc('create_event', { p_hosts: [c.id, ...fd.getAll('cohost')], p_request: rid, ...common })).then(() => true));
       if (!ok) return false;
@@ -1664,6 +1679,7 @@
       case 'nc-del-extra': S.nc.extra.splice(Number(d.v), 1); render(); break;
       case 'interest': S.interest = d.v || null; render(); break;
       case 'ev-scope': S.evScope = d.v; render(); break;
+      case 'ev-perk': S.perk = d.v || null; render(); break;
       case 'join': joinSheet(c); break;
       case 'leave': confirmSheet(`Leave ${c.name}?`, 'You can join again later.', 'Leave club', async () => {
         await rpc('leave_club', { p_club: c.id }); delete S.memberships[c.id]; toast(`You left ${c.name}`); render(); return true; }); break;

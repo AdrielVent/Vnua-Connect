@@ -417,3 +417,6 @@ img.avatar.photo { flex: none; border-radius: 50%; object-fit: cover; background
 
 /* Small labels in sentence case too (no uppercase eyebrows) */
 .kicker { text-transform: none; font-size: 13px; letter-spacing: 0; }
+
+/* Event perks: the one place an event earns a little color, to catch the eye */
+.badge.perk { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
