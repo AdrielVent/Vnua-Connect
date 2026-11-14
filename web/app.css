@@ -414,3 +414,6 @@ img.avatar.photo { flex: none; border-radius: 50%; object-fit: cover; background
 
 /* Fewer, quieter badges */
 .badge { font-weight: 500; }
+
+/* Small labels in sentence case too (no uppercase eyebrows) */
+.kicker { text-transform: none; font-size: 13px; letter-spacing: 0; }

@@ -1115,7 +1115,7 @@
     const lead = by((m) => m.role === 'officer' && m.status === 'active'), mem = by((m) => m.role !== 'officer' && m.status === 'active'), pend = by((m) => m.status === 'pending');
     const group = (t, l) => l.length ? `<div class="stack"><div class="section-header">${t}</div><div class="list">${l.map(clubRow).join('')}</div></div>` : '';
     return `${titleBar('My Clubs', `<a class="icon-btn" href="#/new-club" aria-label="Start a club">${icon.plus}</a>`)}
-      <div class="stack-l">${lead.length + mem.length + pend.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend) + group('Archived', archived)
+      <div class="stack-l">${lead.length + mem.length + pend.length + archived.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend) + group('Archived', archived)
         + '<a class="btn secondary" href="#/new-club">Start a club</a>'
         : `<div class="empty"><h2>No clubs yet</h2><p style="margin-bottom:16px">Find a club in Discover and join, or start your own.</p><a class="btn primary" style="max-width:240px;margin:0 auto" href="#/new-club">Start a club</a></div>`}</div>`;
   }
@@ -1125,7 +1125,7 @@
     if (!S.user.discoverable) return `${titleBar('People')}<div class="card stack"><strong>Meet people who like what you like</strong>
       <p class="muted" style="font-size:15px">Turn this on to see students who share your interests, and let them see you. Only the contact details you choose are shown.</p>
       <button class="btn primary" data-action="go-visible">Turn on</button></div>`;
-    return `${titleBar('People')}<p class="muted" style="margin:-6px 0 12px;font-size:15px">Students who share ${S.user.interests?.length ? esc(S.user.interests.join(', ')) : 'your interests'}${S.user.major ? ` or your major (${esc(S.user.major)})` : ''}.</p>
+    return `${titleBar('People')}<p class="muted" style="margin:-6px 0 12px;font-size:15px">Students who share ${S.user.interests?.length ? esc(S.user.interests.join(', ')) : 'your interests'}${S.user.major && !/^(undeclared|undecided|exploratory|none|n\/a)$/i.test(S.user.major.trim()) ? ` or your major (${esc(S.user.major)})` : ''}.</p>
       <div class="card toggles" style="margin-bottom:16px"><label class="toggle"><span class="spacer"><span style="font-weight:600">Open to connect</span><br>
         <span class="footnote">Your LinkedIn shows only to students who also turned this on, and theirs shows to you. No messages, no feed.</span></span>
         <input type="checkbox" role="switch" data-connect ${S.user.open_to_connect ? 'checked' : ''}></label></div>
