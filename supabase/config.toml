@@ -251,7 +251,10 @@ otp_expiry = 600
 
 # Vnua-connect signs in with a 6-digit code typed into the app, not a link.
 # Supabase only allows custom templates once custom SMTP is configured (free tier).
-# After setting up SMTP, uncomment these and run `supabase config push --yes`.
+# SMTP is set in the dashboard (Authentication → Emails → SMTP) so its password never lands in this repo.
+# WARNING: `supabase config push` sends this whole file. Before pushing with templates enabled, mirror the
+# dashboard SMTP settings in [auth.email.smtp] above with pass = "env(SMTP_PASS)", or the push turns SMTP off.
+# Simplest: paste templates/code.html into the dashboard's "Magic link" and "Confirm signup" templates instead.
 # [auth.email.template.magic_link]
 # subject = "Your Vnua-connect code"
 # content_path = "./supabase/templates/code.html"

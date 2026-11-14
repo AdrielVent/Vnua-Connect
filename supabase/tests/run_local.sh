@@ -15,3 +15,4 @@ PSQL=("$PG/psql" -h "$DIR" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1
 "${PSQL[@]}" -f tests/local_supabase_shim.sql
 for m in migrations/*.sql; do "${PSQL[@]}" -f "$m"; done
 "${PSQL[@]}" -f tests/security_test.sql
+"${PSQL[@]}" -f tests/v2_test.sql

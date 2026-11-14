@@ -3,18 +3,32 @@
 (() => {
   'use strict';
   const CFG = window.VNUA_CONFIG;
+  // persistSession + autoRefreshToken: you stay signed in on this device until you sign out.
   const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {
     auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
   });
   const HERE = location.origin + location.pathname;          // email link comes back here
 
   // ───────────── State ─────────────
+  const blankSignin = () => ({ email: '', sent: false, busy: false, sentAt: 0 });
   const S = {
     booting: true, user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(),
-    q: '', interest: null, evScope: 'all', signin: { name: '', email: '', sent: false, busy: false },
+    notifs: [], invites: [], q: '', interest: null, evScope: 'all', signin: blankSignin(), ob: null, nc: null,
   };
   let cleanup = [];                    // timers / camera for the current screen
   const $ = (sel, root = document) => root.querySelector(sel);
+
+  // ───────────── Constants ─────────────
+  const INTERESTS = ['Academic', 'Business', 'Creative', 'Cultural', 'Engineering', 'Faith', 'Food', 'Games', 'Media', 'Music',
+    'Outdoors', 'Performing arts', 'Professional', 'Service', 'Social justice', 'Sports', 'Tech', 'Wellness'];
+  const YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Grad student', 'Alum', 'Faculty/Staff'];
+  const CORE = ['President', 'Vice President', 'Treasurer', 'Secretary'];
+  const ACCENTS = [['#1f5a6b', 'Harbor'], ['#8a3b2e', 'Brick'], ['#2c455d', 'Steel'], ['#2f5d3a', 'Pine'], ['#4a3a6b', 'Plum'], ['#7a4f12', 'Clay']];
+  const REMINDERS = [[20160, '2 weeks'], [10080, '1 week'], [4320, '3 days'], [1440, '24 hours'], [120, '2 hours'], [60, '1 hour'], [30, '30 min']];
+  const NOTIFY = [['all', 'Everything', 'New events, announcements, and reminders for every event'],
+    ['rsvp', 'Just what I RSVP to', 'Announcements, plus reminders for events you said you’re going to'],
+    ['none', 'Nothing', 'No notifications. You’ll check the app yourself']];
+  const RECOGNITION_GOAL = 15;
 
   // ───────────── Helpers ─────────────
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,17 +37,22 @@
   }));
   const fmt = {
     day: (d) => d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+    short: (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
     time: (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
     full: (d) => d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
     dow: (d) => d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase(),
-    rel: (d) => { const m = Math.round((Date.now() - d) / 60000); return m < 60 ? `${Math.max(m, 1)} min ago` : m < 1440 ? `${Math.round(m / 60)} hr ago` : `${Math.round(m / 1440)} d ago`; },
+    rel: (d) => { const m = Math.round((Date.now() - d) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} hr ago` : m < 10080 ? `${Math.round(m / 1440)} d ago` : fmt.short(d); },
   };
   const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '–');
+  const plural = (n, w, ws = w + 's') => `${n} ${n === 1 ? w : ws}`;
 
   /** Database functions raise 'code|Human message'. Show only the human part. */
   function errMsg(e) {
     const m = (e && (e.message || e.error_description || e.msg)) || String(e);
     if (/failed to fetch|network|load failed/i.test(m)) return 'No connection. Check your internet and try again.';
+    if (/token has expired or is invalid|otp.*(expired|invalid)/i.test(m)) return 'That code didn’t work. Check it, or send a new one.';
+    if (/for security purposes|rate limit/i.test(m)) return 'Wait a minute before asking for another code.';
     const i = m.indexOf('|');
     return i > 0 ? m.slice(i + 1) : m;
   }
@@ -44,38 +63,51 @@
   function toast(msg, isError = false) {
     const t = $('#toast');
     t.textContent = msg; t.className = 'show' + (isError ? ' error' : '');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = isError ? 'error' : ''; }, 2800);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = isError ? 'error' : ''; }, 3000);
   }
   /** Runs an async action; shows any error as a toast. Returns undefined on failure. */
   async function run(fn) { try { return await fn(); } catch (e) { console.error(e); toast(errMsg(e), true); return undefined; } }
+  async function copy(text, what) {
+    try { await navigator.clipboard.writeText(text); toast(`${what} copied`); }
+    catch { window.prompt(`Copy ${what.toLowerCase()}:`, text); }
+  }
 
   // ───────────── Derived ─────────────
   const club = (id) => S.clubs.find((c) => c.id === id);
   const event = (id) => S.events.find((e) => e.id === id);
   const membership = (id) => S.memberships[id];
+  const isMember = (id) => membership(id)?.status === 'active';
   const isOfficer = (clubId) => membership(clubId)?.role === 'officer' && membership(clubId)?.status === 'active';
   const runsEvent = (e) => e.hosts.some(isOfficer);
   const visibleClubs = () => S.clubs.filter((c) => !S.blocked.has(c.id));
   const visibleEvents = () => S.events.filter((e) => !e.hosts.every((h) => S.blocked.has(h)));
   const hostNames = (e) => e.hosts.map((h) => club(h)?.name).filter(Boolean).join(' + ');
-  const interests = () => [...new Set(S.clubs.map((c) => c.interest))].sort();
+  const coreFilled = (c) => CORE.filter((t) => c.officers.some((o) => o.title.toLowerCase() === t.toLowerCase())).length;
+  const myInvites = () => S.invites.filter((i) => i.email === S.user.email);
+  const clubInvites = (id) => S.invites.filter((i) => i.club_id === id);
+  const unread = () => S.notifs.filter((n) => !n.read_at).length + myInvites().length;
   const recogLabel = { recognized: 'Recognized', not_recognized: 'Not yet recognized', not_stated: 'Status not stated' };
   const roleLabel = { member: 'Member', founding: 'Founding member', officer: 'Officer' };
-  const contactLabel = { none: "Don't email me", events: 'Event updates only', organizing: 'Events and organizing' };
 
   // ───────────── Data ─────────────
-  async function loadProfile(userId) {
-    return q(sb.from('profiles').select('*').eq('id', userId).single());
+  async function loadProfile(userId) { return q(sb.from('profiles').select('*').eq('id', userId).single()); }
+  async function loadInbox() {
+    const [notifs, invites] = await Promise.all([
+      q(sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(100)),
+      q(sb.from('club_invites').select('*').eq('status', 'pending').order('created_at')),
+    ]);
+    S.notifs = notifs; S.invites = invites;
   }
   async function loadAll() {
     const me = S.user.id, campus = S.user.campus_id;
     const [clubs, officers, events, ms, rs, bl] = await Promise.all([
       q(sb.from('clubs').select('*').eq('campus_id', campus).order('name')),
-      q(sb.from('club_officers').select('*')),
+      q(sb.from('club_officers').select('*').order('rank')),
       q(sb.from('events').select('*, event_hosts(club_id)').eq('campus_id', campus).order('starts_at')),
       q(sb.from('memberships').select('*').eq('user_id', me)),
       q(sb.from('rsvps').select('event_id').eq('user_id', me)),
       q(sb.from('club_blocks').select('club_id')),
+      loadInbox(),
     ]);
     S.clubs = clubs.map((c) => ({ ...c, officers: officers.filter((o) => o.club_id === c.id) }));
     S.events = events.map((e) => ({ ...e, start: new Date(e.starts_at), hosts: e.event_hosts.map((h) => h.club_id),
@@ -84,123 +116,275 @@
     S.rsvps = new Set(rs.map((r) => r.event_id));
     S.blocked = new Set(bl.map((b) => b.club_id));
   }
-  async function refresh() { await run(loadAll); render(); }
+  let lastLoad = 0;
+  async function refresh() { await run(loadAll); lastLoad = Date.now(); render(); }
+
+  // Feels like an app: fresh data when you come back to it, and the inbox badge stays current.
+  const busyTyping = () => $('#sheet-root').innerHTML || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
+    || ['new-club', 'dash'].includes(route().name) || S.ob;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && S.user && Date.now() - lastLoad > 20000) {
+      run(loadAll).then(() => { lastLoad = Date.now(); if (!busyTyping()) render(); else updateBell(); });
+    }
+  });
+  setInterval(() => { if (S.user && document.visibilityState === 'visible') run(loadInbox).then(updateBell); }, 60000);
+  function updateBell() {
+    document.querySelectorAll('[data-bell]').forEach((b) => {
+      const n = unread(); b.querySelector('.dot')?.remove();
+      if (n) b.insertAdjacentHTML('beforeend', `<span class="dot">${n > 9 ? '9+' : n}</span>`);
+      b.setAttribute('aria-label', n ? `Inbox, ${n} new` : 'Inbox');
+    });
+  }
 
   // ───────────── Icons ─────────────
+  const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   const icon = {
-    discover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>',
-    events: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
-    clubs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="9" r="3"/><circle cx="16.5" cy="9" r="3"/><path d="M2.5 19c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5M12 19c.6-2.6 2.4-4.3 4.5-4.3s3.9 1.7 4.5 4.3"/></svg>',
-    profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5c1.3-2 3.2-3 5.5-3s4.2 1 5.5 3"/></svg>',
+    discover: svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/>'),
+    events: svg('<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    clubs: svg('<circle cx="8" cy="9" r="3"/><circle cx="16.5" cy="9" r="3"/><path d="M2.5 19c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5M12 19c.6-2.6 2.4-4.3 4.5-4.3s3.9 1.7 4.5 4.3"/>'),
+    people: svg('<path d="M4 20c.8-3.6 3.9-6 8-6s7.2 2.4 8 6"/><circle cx="12" cy="8" r="4"/>'),
+    profile: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5c1.3-2 3.2-3 5.5-3s4.2 1 5.5 3"/>'),
+    bell: svg('<path d="M6 9a6 6 0 1 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9"/><path d="M10 19a2 2 0 0 0 4 0"/>'),
+    mail: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/>'),
+    phone: svg('<path d="M5 4h3l1.5 4.5-2 1.3a11 11 0 0 0 6.7 6.7l1.3-2L20 16v3a1.5 1.5 0 0 1-1.6 1.5C10.6 20 4 13.4 3.5 5.6A1.5 1.5 0 0 1 5 4"/>'),
+    link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.5l-5.4 2.9 1.2-5.9L3.4 9.4l6-.7z"/></svg>',
   };
 
   // ───────────── Router ─────────────
-  // #/discover  #/events  #/mine  #/profile  #/club/:id  #/event/:id  #/pass/:id  #/checkin/:id
+  // #/discover #/events #/mine #/people #/profile #/inbox #/club/:id #/event/:id #/pass/:id #/checkin/:id #/dash/:id #/new-club
   function route() {
     const [, name = 'discover', id] = (location.hash || '#/discover').split('/');
     return { name, id };
   }
   window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
 
+  const triedFetch = new Set();       // ids we already refetched for, so a truly missing item shows "not found"
+  const TABS = ['discover', 'events', 'mine', 'people', 'profile'];
   function render() {
     cleanup.forEach((f) => f()); cleanup = [];
     const app = $('#app');
     if (S.booting) { app.innerHTML = '<div class="boot"><div class="spinner" role="status" aria-label="Loading"></div></div>'; return; }
     if (!S.user) { app.innerHTML = signInView(); bindSignIn(); return; }
+    if (S.ob) { app.innerHTML = obView(); after.ob?.(); return; }
     const r = route();
-    const views = { discover: discoverView, events: eventsView, mine: mineView, profile: profileView,
-      club: clubView, event: eventView, pass: passView, checkin: checkinView };
+    const views = { discover: discoverView, events: eventsView, mine: mineView, people: peopleView, profile: profileView, inbox: inboxView,
+      club: clubView, event: eventView, pass: passView, checkin: checkinView, dash: dashView, 'new-club': newClubView };
     const view = views[r.name] || discoverView;
-    const tabs = ['discover', 'events', 'mine', 'profile'].includes(r.name) || !views[r.name];
+    // Opened something we haven't loaded yet (a shared link, or it was just created)? Fetch once, then show it.
+    const missing = (r.name === 'club' || r.name === 'dash') ? !club(r.id) : ['event', 'pass', 'checkin'].includes(r.name) ? !event(r.id) : false;
+    if (missing && r.id && !triedFetch.has(r.id)) {
+      triedFetch.add(r.id);
+      app.innerHTML = '<div class="boot"><div class="spinner" role="status" aria-label="Loading"></div></div>';
+      run(loadAll).then(() => { lastLoad = Date.now(); render(); }); return;
+    }
+    const tabs = TABS.includes(r.name) || !views[r.name];
     app.innerHTML = `<main class="screen${tabs ? '' : ' no-tabs'}">${view(r.id)}</main>${tabs ? tabbar(r.name) : ''}`;
     after[r.name]?.(r.id);
   }
   const after = {};                    // per-screen setup after HTML is in the DOM
 
   function tabbar(active) {
-    const t = (id, label) => `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${icon[id === 'mine' ? 'clubs' : id]}<span>${label}</span></a>`;
-    return `<nav class="tabbar" aria-label="Main">${t('discover', 'Discover')}${t('events', 'Events')}${t('mine', 'My Clubs')}${t('profile', 'Profile')}</nav>`;
+    const t = (id, label, ic) => `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${icon[ic]}<span>${label}</span></a>`;
+    return `<nav class="tabbar" aria-label="Main">${t('discover', 'Discover', 'discover')}${t('events', 'Events', 'events')}${t('mine', 'My Clubs', 'clubs')}${t('people', 'People', 'people')}${t('profile', 'Profile', 'profile')}</nav>`;
+  }
+  function titleBar(title, extra = '') {
+    const n = unread();
+    return `<div class="title-row"><h1 class="large-title">${esc(title)}</h1>${extra}<a class="icon-btn bell" href="#/inbox" data-bell aria-label="${n ? `Inbox, ${n} new` : 'Inbox'}">${icon.bell}${n ? `<span class="dot">${n > 9 ? '9+' : n}</span>` : ''}</a></div>`;
   }
   const back = (href, label = 'Back') => `<div class="topbar"><a class="back" href="${href}">‹ ${esc(label)}</a><span class="spacer"></span>`;
 
   // ───────────── Pieces ─────────────
-  const mono = (c, size = 48) => `<div class="mono" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;background:${esc(c.accent_hex)}">${esc(c.monogram)}</div>`;
+  const mono = (c, size = 48) => c.logo_url
+    ? `<img class="logo" src="${esc(c.logo_url)}" alt="" width="${size}" height="${size}" loading="lazy">`
+    : `<div class="mono" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;background:${esc(c.accent_hex)}">${esc(c.monogram)}</div>`;
+  const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  const hue = (s) => [...String(s)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
+  const avatar = (name, size = 44) => `<div class="avatar" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;--h:${hue(name)}">${esc(initials(name))}</div>`;
   const badge = (text, tone = '') => `<span class="badge ${tone}">${esc(text)}</span>`;
+  function clubStatusBadge(c) {
+    if (c.is_published) return '';
+    const n = coreFilled(c);
+    return n < 4 ? badge(`Forming · ${n}/4 officers`, 'warning') : badge('In review', 'warning');
+  }
   function clubBadges(c) {
     const m = membership(c.id);
-    return `<div class="badges">${badge(c.interest)}${!c.is_published ? badge('⏳ In review', 'warning') : ''}${
-      m ? (m.status === 'pending' ? badge('Requested', 'warning') : badge('✓ ' + roleLabel[m.role], 'success')) : ''}</div>`;
+    return `<div class="badges">${badge(c.interest)}${clubStatusBadge(c)}${
+      m ? (m.status === 'pending' ? badge('Requested', 'warning') : badge(m.role === 'officer' ? (m.officer_title || 'Officer') : roleLabel[m.role], 'success')) : ''}</div>`;
   }
   const clubRow = (c) => `<a class="card club-row" href="#/club/${c.id}">${mono(c)}<div class="spacer"><div class="name">${esc(c.name)}</div>
     <div class="blurb">${esc(c.blurb)}</div>${clubBadges(c)}</div><span class="chev">›</span></a>`;
   function statusBadge(e) {
-    return e.status === 'rescheduled' ? badge('↻ Rescheduled', 'warning') : e.status === 'cancelled' ? badge('✕ Cancelled', 'warning') : '';
+    return e.status === 'rescheduled' ? badge('Rescheduled', 'warning') : e.status === 'cancelled' ? badge('Cancelled', 'warning') : '';
   }
   const eventRow = (e) => `<a class="card row${e.status === 'cancelled' ? ' cancelled' : ''}" href="#/event/${e.id}" style="align-items:flex-start">
     <div class="date-chip"><span class="dow">${fmt.dow(e.start)}</span><span class="day">${e.start.getDate()}</span></div>
     <div class="spacer"><div class="event-title">${esc(e.title)}</div>
     <div class="muted" style="font-size:15px">${fmt.time(e.start)}${e.location ? ' · ' + esc(e.location) : ''}</div>
     <div class="footnote">${esc(hostNames(e))}</div>
-    <div class="badges">${statusBadge(e)}${S.rsvps.has(e.id) ? badge('✓ Going', 'success') : ''}</div></div></a>`;
+    <div class="badges">${statusBadge(e)}${S.rsvps.has(e.id) ? badge('Going', 'success') : ''}</div></div></a>`;
   const eventCard = (e) => `<a class="card" href="#/event/${e.id}"><div class="kicker">${esc(fmt.day(e.start))}</div>
     <div class="event-title" style="margin:6px 0;min-height:2.8em">${esc(e.title)}</div>
-    <div class="footnote" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmt.time(e.start)} · ${esc(e.location)}</div>
-    ${S.rsvps.has(e.id) ? `<div class="badges">${badge('✓ Going', 'success')}</div>` : ''}</a>`;
+    <div class="footnote" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmt.time(e.start)}${e.location ? ' · ' + esc(e.location) : ''}</div>
+    ${S.rsvps.has(e.id) ? `<div class="badges">${badge('Going', 'success')}</div>` : ''}</a>`;
+  /** Email / text / LinkedIn buttons for whatever a person chose to share. */
+  function contactButtons(p) {
+    const b = [];
+    if (p.email) b.push(`<a class="btn secondary small" href="mailto:${esc(p.email)}">${icon.mail}Email</a>`);
+    const tel = (p.phone || '').replace(/[^\d+]/g, '');
+    if (tel) b.push(`<a class="btn secondary small" href="sms:${esc(tel)}">${icon.phone}Text</a>`);
+    if (/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(p.linkedin || '')) b.push(`<a class="btn secondary small" href="${esc(p.linkedin)}" target="_blank" rel="noopener noreferrer">${icon.link}LinkedIn</a>`);
+    return b.length ? `<div class="contact-row">${b.join('')}</div>` : '';
+  }
+  const stat = (value, label, sub = '') => `<div class="stat"><div class="stat-v">${esc(value)}</div><div class="stat-l">${esc(label)}</div>${sub ? `<div class="footnote">${esc(sub)}</div>` : ''}</div>`;
+  const stars = (eventId, value, size = '') => `<div class="stars ${size}" role="group" aria-label="Rate this event">${[1, 2, 3, 4, 5].map((v) =>
+    `<button type="button" class="star${value >= v ? ' on' : ''}" data-action="rate" data-event="${eventId}" data-v="${v}" aria-label="${v} star${v > 1 ? 's' : ''}" aria-pressed="${value === v}">${icon.star}</button>`).join('')}</div>`;
 
-  // ───────────── Sign in ─────────────
+  // ───────────── Sign in (6-digit code) ─────────────
   function signInView() {
     const s = S.signin;
-    return `<main class="screen no-tabs" style="max-width:520px"><div class="stack-l" style="padding-top:48px">
-      <div class="stack">
-        <div style="width:56px;height:56px;color:var(--accent)" aria-hidden="true">${icon.clubs.replace('stroke-width="2"', 'stroke-width="2.2"')}</div>
+    const wait = Math.max(0, 60 - Math.floor((Date.now() - s.sentAt) / 1000));
+    const intro = `<div class="stack"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
         <h1 class="large-title" style="margin:0">Vnua-connect</h1>
-        <p class="muted">Giving clubs a chance. Find new student groups at ${esc(CFG.campus.name)}, join or help found one, and check in at events.</p>
-      </div>
+        <p class="muted">Find new student clubs at ${esc(CFG.campus.name)}, join or start one, and check in at events.</p></div>`;
+    if (!s.sent) return `<main class="screen no-tabs narrow"><div class="stack-l" style="padding-top:48px">${intro}
       <form id="signin" class="stack" novalidate>
-        <label class="field"><span>Your name</span><input class="input" name="name" autocomplete="name" value="${esc(s.name)}" ${s.sent ? 'disabled' : ''} required></label>
         <label class="field"><span>School email</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email"
-          autocapitalize="off" spellcheck="false" placeholder="you@pride.hofstra.edu" value="${esc(s.email)}" ${s.sent ? 'disabled' : ''} required></label>
-        ${s.sent ? `<div class="card stack"><p><strong>Check ${esc(s.email)}.</strong></p>
-          <p class="muted" style="font-size:15px">Open the email <strong>in this browser</strong> and tap the link. If your email shows a code instead, type it here.</p>
-          <label class="field"><span>Code (optional)</span><input class="input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label></div>` : ''}
-        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Working…' : s.sent ? 'Verify code' : 'Email me a sign-in link'}</button>
-        ${s.sent ? '<button class="btn secondary" type="button" data-action="signin-reset">Use a different email</button>' : ''}
+          autocapitalize="off" spellcheck="false" placeholder="you@pride.hofstra.edu" value="${esc(s.email)}" required></label>
+        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Sending…' : 'Send me a code'}</button>
       </form>
-      <p class="footnote">Vnua-connect is student-run and not affiliated with or endorsed by ${esc(CFG.campus.name)}.
-        Use the email on the device you'll open it on. Codes and links expire after 10 minutes.</p>
-    </div></main>`;
+      <p class="footnote">No password. We email you a 6-digit code, and you stay signed in on this device until you sign out.
+        Vnua-connect is student-run and not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p></div></main>`;
+    return `<main class="screen no-tabs narrow"><div class="stack-l" style="padding-top:48px">
+      <div class="stack"><h1 class="large-title" style="margin:0">Check your email</h1>
+        <p class="muted">We sent a code to <strong>${esc(s.email)}</strong>. It can take a minute, and it might land in junk.</p></div>
+      <form id="signin" class="stack" novalidate>
+        <label class="field"><span>6-digit code</span><input class="input code-input" name="code" inputmode="numeric" pattern="[0-9]*"
+          autocomplete="one-time-code" maxlength="8" placeholder="••••••" required></label>
+        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Checking…' : 'Sign in'}</button>
+        <div class="row" style="justify-content:space-between">
+          <button class="link-btn" type="button" data-action="signin-reset">Different email</button>
+          <button class="link-btn" type="button" data-action="signin-resend" id="resend" ${wait ? 'disabled' : ''}>${wait ? `Resend in ${wait}s` : 'Resend code'}</button>
+        </div>
+      </form>
+      <p class="footnote">If the email has a link instead of a code, open it in this browser. Codes expire after 10 minutes.</p></div></main>`;
   }
   const campusAllows = (email) => {
     const d = (email.split('@')[1] || '').toLowerCase();
     return CFG.campus.emailDomains.some((x) => d === x || d.endsWith('.' + x));
   };
+  async function sendCode() {
+    const s = S.signin;
+    s.busy = true; render();
+    const ok = await run(() => q(sb.auth.signInWithOtp({ email: s.email, options: { shouldCreateUser: true, emailRedirectTo: HERE } })).then(() => true));
+    s.busy = false; if (ok) { s.sent = true; s.sentAt = Date.now(); } render();
+  }
   function bindSignIn() {
-    $('#signin').addEventListener('submit', async (ev) => {
+    const form = $('#signin');
+    form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const f = ev.target, s = S.signin;
+      const s = S.signin;
       if (!s.sent) {
-        s.name = f.name.value.trim(); s.email = f.email.value.trim().toLowerCase();
-        if (!s.name) return toast('Enter your name.', true);
+        s.email = form.email.value.trim().toLowerCase();
         if (!campusAllows(s.email)) return toast(`Use your ${CFG.campus.name} email address.`, true);
-        s.busy = true; render();
-        const ok = await run(() => q(sb.auth.signInWithOtp({ email: s.email,
-          options: { shouldCreateUser: true, data: { name: s.name }, emailRedirectTo: HERE } })).then(() => true));
-        s.busy = false; if (ok) s.sent = true; render();
-      } else {
-        const code = (f.code?.value || '').trim();
-        if (!/^\d{6,8}$/.test(code)) return toast('Tap the link in the email, or enter the code it shows.', true);
-        s.busy = true; render();
-        await run(() => q(sb.auth.verifyOtp({ email: s.email, token: code, type: 'email' })));
-        s.busy = false; render();                 // onAuthStateChange signs in
+        return sendCode();
       }
+      const code = form.code.value.replace(/\D/g, '');
+      if (!/^\d{6,8}$/.test(code)) return toast('Enter the 6-digit code from the email.', true);
+      s.busy = true; render();
+      const ok = await run(() => q(sb.auth.verifyOtp({ email: s.email, token: code, type: 'email' })).then(() => true));
+      if (!ok) { s.busy = false; render(); $('#signin')?.code?.focus(); }   // on success onAuthStateChange signs in
     });
+    if (S.signin.sent) {
+      const input = form.code; input.focus();
+      input.addEventListener('input', () => { if (input.value.replace(/\D/g, '').length === 6 && !S.signin.busy) form.requestSubmit(); });
+      const t = setInterval(() => {
+        const b = $('#resend'); if (!b) return clearInterval(t);
+        const wait = Math.max(0, 60 - Math.floor((Date.now() - S.signin.sentAt) / 1000));
+        b.disabled = wait > 0; b.textContent = wait ? `Resend in ${wait}s` : 'Resend code';
+        if (!wait) clearInterval(t);
+      }, 1000);
+      cleanup.push(() => clearInterval(t));
+    } else form.email.focus();
+  }
+
+  // ───────────── Onboarding ─────────────
+  function startOnboarding() {
+    const u = S.user, local = (u.email || '').split('@')[0];
+    S.ob = { step: 0, name: u.name === local ? '' : u.name, major: u.major || '', year: u.class_year || '', pronouns: u.pronouns || '',
+      interests: [...(u.interests || [])], phone: u.phone || '', linkedin: u.linkedin || '', bio: u.bio || '',
+      share_email: u.share_email, share_phone: u.share_phone, share_linkedin: u.share_linkedin ?? true, discoverable: true };
+  }
+  function obView() {
+    const o = S.ob, st = o.step;
+    const dots = `<div class="dots" aria-label="Step ${st} of 3">${[1, 2, 3].map((i) => `<span class="${i <= st ? 'on' : ''}"></span>`).join('')}</div>`;
+    const nav = (next = 'Continue') => `<div class="ob-nav"><button class="btn primary" data-action="ob-next">${next}</button>
+      ${st > 0 ? '<button class="link-btn" data-action="ob-back">Back</button>' : ''}</div>`;
+    let body;
+    if (st === 0) body = `<div class="stack-l ob-hero"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
+        <h1 class="large-title" style="margin:0">Welcome to Vnua-connect</h1>
+        <p class="muted" style="font-size:19px">The place for the clubs that are just getting started. First, a quick profile so clubs and people with the same interests can find you.</p>
+        <p class="footnote">Takes about a minute. You can change all of it later in Profile.</p>
+        <div class="ob-nav"><button class="btn primary" data-action="ob-next">Let’s go</button></div></div>`;
+    else if (st === 1) body = `${dots}<h1 class="ob-title">About you</h1><div class="stack-l">
+        <label class="field"><span>Name</span><input class="input" data-ob="name" value="${esc(o.name)}" autocomplete="name" maxlength="80" placeholder="First and last name"></label>
+        <label class="field"><span>Major</span><input class="input" data-ob="major" value="${esc(o.major)}" maxlength="80" placeholder="e.g. Computer Science, Undeclared"></label>
+        <div class="field"><span>Year</span><div class="chip-wrap">${YEARS.map((y) => `<button type="button" class="chip" data-action="ob-year" data-v="${esc(y)}" aria-pressed="${o.year === y}">${esc(y)}</button>`).join('')}</div></div>
+        <label class="field"><span>Pronouns <span class="muted" style="font-weight:400">(optional)</span></span><input class="input" data-ob="pronouns" value="${esc(o.pronouns)}" maxlength="30" placeholder="e.g. she/her"></label>
+      </div>${nav()}`;
+    else if (st === 2) body = `${dots}<h1 class="ob-title">What are you into?</h1>
+      <p class="muted" style="margin-bottom:16px">Pick up to 3. We’ll show you clubs and people that match.</p>
+      <div class="chip-wrap big">${INTERESTS.map((i) => `<button type="button" class="chip" data-action="ob-interest" data-v="${esc(i)}" aria-pressed="${o.interests.includes(i)}">${esc(i)}</button>`).join('')}</div>
+      <p class="footnote" style="margin-top:12px">${o.interests.length} of 3 picked</p>${nav()}`;
+    else if (st === 3) body = `${dots}<h1 class="ob-title">How people can reach you</h1>
+      <p class="muted" style="margin-bottom:16px">All optional. Only what you switch on is shown, and only to students here.</p>
+      <div class="stack-l">
+        <label class="field"><span>Phone</span><input class="input" data-ob="phone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(o.phone)}" maxlength="30" placeholder="(516) 555-0100"></label>
+        <label class="field"><span>LinkedIn</span><input class="input" data-ob="linkedin" type="url" inputmode="url" autocapitalize="off" value="${esc(o.linkedin)}" maxlength="200" placeholder="linkedin.com/in/your-name"></label>
+        <label class="field"><span>A line about you</span><input class="input" data-ob="bio" value="${esc(o.bio)}" maxlength="280" placeholder="e.g. Looking for people to start a climbing club"></label>
+        <div class="card toggles">
+          ${toggle('discoverable', 'Let students with the same interests find me', 'You’ll show up in People, and you’ll see them too.', o.discoverable, 'ob')}
+          ${toggle('share_email', 'Show my school email', '', o.share_email, 'ob')}
+          ${toggle('share_phone', 'Show my phone number', '', o.share_phone, 'ob')}
+          ${toggle('share_linkedin', 'Show my LinkedIn', '', o.share_linkedin, 'ob')}
+        </div>
+        <p class="footnote">Officers of clubs you join always see your name and school email, the same as a club roster.</p>
+      </div>${nav('Save profile')}`;
+    else body = `<div class="stack-l ob-hero"><h1 class="large-title" style="margin:0">You’re all set${o.name ? ', ' + esc(o.name.split(' ')[0]) : ''}.</h1>
+        <p class="muted" style="font-size:19px">What do you want to do first?</p>
+        <button class="card choice-card" data-action="ob-finish" data-v="join"><strong>Join a club</strong><span class="muted">See clubs that match ${o.interests.length ? esc(o.interests.join(', ')) : 'what you like'}.</span></button>
+        <button class="card choice-card" data-action="ob-finish" data-v="create"><strong>Start a club</strong><span class="muted">Name it, add a logo, and invite your president, VP, treasurer and secretary.</span></button>
+        <button class="link-btn" data-action="ob-finish" data-v="look" style="justify-self:start">Just look around</button></div>`;
+    return `<main class="screen no-tabs narrow ob">${body}</main>`;
+  }
+  function toggle(key, label, sub, on, scope) {
+    return `<label class="toggle"><span class="spacer"><span style="font-weight:600">${esc(label)}</span>${sub ? `<br><span class="footnote">${esc(sub)}</span>` : ''}</span>
+      <input type="checkbox" role="switch" ${scope === 'ob' ? `data-ob="${key}"` : `name="${key}"`} ${on ? 'checked' : ''}></label>`;
+  }
+  after.ob = () => { $('[data-ob]:not([type=checkbox])')?.focus({ preventScroll: true }); };
+  async function obNext() {
+    const o = S.ob;
+    if (o.step === 1) {
+      if (!o.name.trim()) return toast('Add your name.', true);
+      if (!o.year) return toast('Pick your year.', true);
+    }
+    if (o.step === 2 && !o.interests.length) return toast('Pick at least one interest.', true);
+    if (o.step === 3) {
+      const ok = await run(() => rpc('save_profile', { p_name: o.name.trim(), p_major: o.major.trim(), p_year: o.year, p_pronouns: o.pronouns.trim(),
+        p_interests: o.interests, p_bio: o.bio.trim(), p_phone: o.phone.trim(), p_linkedin: o.linkedin.trim(), p_share_email: o.share_email,
+        p_share_phone: o.share_phone, p_share_linkedin: o.share_linkedin, p_discoverable: o.discoverable, p_leaderboard: true }).then(() => true));
+      if (!ok) return;
+      S.user = await run(() => loadProfile(S.user.id)) || S.user;
+    }
+    o.step++; render(); window.scrollTo(0, 0);
   }
 
   // ───────────── Discover ─────────────
   function discoverView() {
     const chips = [`<button class="chip" data-action="interest" data-v="" aria-pressed="${!S.interest}">All</button>`]
-      .concat(interests().map((i) => `<button class="chip" data-action="interest" data-v="${esc(i)}" aria-pressed="${S.interest === i}">${esc(i)}</button>`)).join('');
-    return `<h1 class="large-title">Discover</h1><div class="stack-l">
+      .concat([...new Set(S.clubs.map((c) => c.interest))].sort().map((i) => `<button class="chip" data-action="interest" data-v="${esc(i)}" aria-pressed="${S.interest === i}">${esc(i)}</button>`)).join('');
+    return `${titleBar('Discover')}<div class="stack-l">
+      ${myInvites().length ? `<a class="card notice-card" href="#/inbox"><strong>You’re invited to an officer team</strong><span class="muted">${esc(myInvites().map((i) => `${i.position} of ${club(i.club_id)?.name || 'a club'}`).join(' · '))}</span></a>` : ''}
       <label class="search"><span class="sr">Search clubs</span><input class="input" id="search" type="search" placeholder="Clubs and interests" value="${esc(S.q)}" autocomplete="off"></label>
       <div class="chips" role="group" aria-label="Interests">${chips}</div>
       <div id="discover-body" class="stack-l">${discoverBody()}</div></div>`;
@@ -210,10 +394,13 @@
     const list = visibleClubs().filter((c) => (!S.interest || c.interest === S.interest) &&
       (!ql || [c.name, c.blurb, c.interest].some((t) => t.toLowerCase().includes(ql))));
     const soon = visibleEvents().filter((e) => e.status !== 'cancelled' && e.end > new Date()).slice(0, 5);
-    return `${!S.q && !S.interest && soon.length ? `<div class="section-header">Happening soon</div><div class="hscroll">${soon.map(eventCard).join('')}</div>` : ''}
+    const mine = S.user.interests || [];
+    const forYou = !S.q && !S.interest ? visibleClubs().filter((c) => mine.includes(c.interest) && !membership(c.id)).slice(0, 4) : [];
+    return `${forYou.length ? `<div class="section-header">Picked for you</div><div class="stack">${forYou.map(clubRow).join('')}</div>` : ''}
+      ${!S.q && !S.interest && soon.length ? `<div class="section-header">Happening soon</div><div class="hscroll">${soon.map(eventCard).join('')}</div>` : ''}
       <div class="section-header">${esc(S.interest || 'All clubs')}</div>
       <div class="stack">${list.map(clubRow).join('') || `<div class="empty"><h2>${S.clubs.length ? 'No matches' : 'No clubs yet'}</h2>
-        <p>${S.clubs.length ? 'Try a different search.' : 'Be the first: start a club from My Clubs.'}</p></div>`}</div>`;
+        <p>${S.clubs.length ? 'Try a different search.' : 'Be the first.'}</p>${S.clubs.length ? '' : '<a class="btn primary" href="#/new-club" style="max-width:240px;margin:16px auto 0">Start a club</a>'}</div>`}</div>`;
   }
   after.discover = () => {
     const s = $('#search');
@@ -224,30 +411,74 @@
   function clubView(id) {
     const c = club(id);
     if (!c) return `${back('#/discover', 'Discover')}</div><div class="empty"><h2>Club not found</h2><p>It may have been removed or blocked.</p></div>`;
-    const m = membership(c.id), officer = isOfficer(c.id);
-    const evs = S.events.filter((e) => e.hosts.includes(c.id));
+    const m = membership(c.id), officer = isOfficer(c.id), invite = myInvites().find((i) => i.club_id === c.id);
+    const now = new Date();
+    const upcoming = S.events.filter((e) => e.hosts.includes(c.id) && e.end > now);
+    const past = S.events.filter((e) => e.hosts.includes(c.id) && e.end <= now).reverse().slice(0, 5);
     const memberCard = m ? `<div class="card stack">
-        ${m.status === 'pending' ? `<p class="notice warning">⏳ Join request sent. An officer will review it.</p>`
-          : `<p style="color:var(--success);font-weight:600">✓ You're ${m.role === 'officer' ? 'an' : 'a'} ${esc(roleLabel[m.role].toLowerCase())}</p>`}
-        <label class="field"><span>Emails from this club</span><select class="input" data-change="contact" data-club="${c.id}">
-          ${Object.entries(contactLabel).map(([k, v]) => `<option value="${k}" ${m.contact === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        ${m.status === 'pending' ? `<p class="notice warning">Join request sent. An officer will review it.</p>`
+          : `<p style="color:var(--success);font-weight:600">${m.role === 'officer' ? `You’re the ${esc(m.officer_title || 'officer')}` : `You’re ${m.role === 'founding' ? 'a founding member' : 'a member'}`}</p>`}
+        <label class="field"><span>Notifications from this club</span><select class="input" data-change="notify" data-club="${c.id}">
+          ${NOTIFY.map(([k, v]) => `<option value="${k}" ${m.notify === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <button class="link-btn danger" data-action="leave" data-club="${c.id}" style="justify-self:start">${m.status === 'pending' ? 'Cancel request' : 'Leave club'}</button></div>`
-      : `<div class="card stack"><button class="btn primary" data-action="join" data-club="${c.id}">${c.requires_approval ? 'Request to join' : 'Join club'}</button>
+      : invite ? '' : `<div class="card stack"><button class="btn primary" data-action="join" data-club="${c.id}">${c.requires_approval ? 'Request to join' : 'Join club'}</button>
         ${c.requires_approval ? '<p class="footnote">Officers approve new members for this club.</p>' : ''}</div>`;
+    const officers = c.officers.map((o) => `<div class="person">${avatar(o.name)}<div class="spacer">
+        <div style="font-weight:700">${esc(o.name)}</div><div class="footnote" style="color:var(--accent);font-weight:600">${esc(o.title)}</div>
+        ${o.major || o.class_year ? `<div class="footnote">${esc([o.major, o.class_year].filter(Boolean).join(' · '))}</div>` : ''}
+        ${o.ask_about ? `<div class="ask">Contact me about ${esc(o.ask_about.replace(/^about\s+/i, ''))}</div>` : ''}
+        ${contactButtons(o)}</div></div>`).join('');
     return `${back('#/discover', 'Discover')}<button class="icon-btn" data-action="club-menu" data-club="${c.id}" aria-label="More">⋯</button></div>
       <div class="stack-l">
-        <div class="stack" style="gap:10px">${mono(c, 72)}<h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
-          <p class="muted">${esc(c.blurb)}</p><div class="badges">${badge(c.interest)}${badge((c.recognition === 'recognized' ? '✓ ' : '') + recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${c.funded ? badge('Funded', 'accent') : ''}</div></div>
-        ${!c.is_published ? '<div class="card notice warning">⏳ Only you and your members can see this club until a moderator reviews it.</div>' : ''}
+        <div class="stack" style="gap:10px">${mono(c, 76)}<h1 style="font-size:28px;font-weight:800">${esc(c.name)}</h1>
+          <p class="muted">${esc(c.blurb)}</p><div class="badges">${badge(c.interest)}${clubStatusBadge(c)}${badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${c.funded ? badge('Funded', 'accent') : ''}</div></div>
+        ${invite ? `<div class="card stack invite-card"><strong>You’re invited to be ${esc(invite.position)}</strong>
+          <p class="muted" style="font-size:15px">If you accept, your name, position and school email show on this page so students can reach you.</p>
+          <div class="row"><button class="btn secondary" data-action="invite-answer" data-id="${invite.id}" data-v="0">Decline</button><button class="btn primary" data-action="invite-answer" data-id="${invite.id}" data-v="1">Accept</button></div></div>` : ''}
+        ${!c.is_published && !officer ? `<div class="card notice warning">This club is still forming. Students see it once its four officers are in and a moderator has reviewed it.</div>` : ''}
+        ${officer ? teamCard(c) : ''}
         ${memberCard}
-        ${officer ? `<button class="btn primary" data-action="new-event" data-club="${c.id}">＋ New event</button><div class="card stack" id="join-requests"><div class="section-header">Join requests</div><p class="footnote">Loading…</p></div>` : ''}
-        ${c.about || c.affiliation ? `<div class="card stack"><div class="section-header">About</div>${c.about ? `<p>${esc(c.about)}</p>` : ''}${c.affiliation ? `<p class="footnote">🔗 ${esc(c.affiliation)}</p>` : ''}</div>` : ''}
-        ${c.officers.length ? `<div class="card stack"><div class="section-header">Officers</div>${c.officers.map((o) => `<div><div style="font-weight:600;font-size:15px">${esc(o.name)} · ${esc(o.title)}</div>${o.ask_about ? `<div class="footnote">Ask about: ${esc(o.ask_about)}</div>` : ''}</div>`).join('')}</div>` : ''}
-        <div class="stack"><div class="section-header">Events</div>${evs.map(eventRow).join('') || '<p class="muted" style="font-size:15px">No upcoming events</p>'}</div>
+        ${officer ? `<div class="officer-actions"><a class="btn primary" href="#/dash/${c.id}">Officer dashboard</a>
+          <button class="btn secondary" data-action="new-event" data-club="${c.id}">New event</button>
+          <button class="btn secondary" data-action="announce" data-club="${c.id}">Announcement</button></div>
+          ${c.requires_approval ? `<div class="card stack" id="join-requests"><div class="section-header">Join requests</div><p class="footnote">Loading…</p></div>` : ''}` : ''}
+        ${c.about || c.affiliation ? `<div class="card stack"><div class="section-header">About</div>${c.about ? `<p>${esc(c.about)}</p>` : ''}${c.affiliation ? `<p class="footnote">${esc(c.affiliation)}</p>` : ''}</div>` : ''}
+        ${c.officers.length ? `<div class="stack"><div class="section-header">E-board</div><div class="card people">${officers}</div></div>` : ''}
+        ${isMember(c.id) ? `<div class="stack" id="leaderboard"></div>` : ''}
+        <div class="stack"><div class="section-header">Upcoming</div>${upcoming.map(eventRow).join('') || '<p class="muted" style="font-size:15px">Nothing scheduled yet.</p>'}</div>
+        ${past.length ? `<div class="stack"><div class="section-header">Past events</div>${past.map(eventRow).join('')}</div>` : ''}
       </div>`;
   }
+  /** Officers see who holds each of the four core positions, open slots, and pending invites. */
+  function teamCard(c) {
+    const inv = clubInvites(c.id), n = coreFilled(c);
+    const row = (title) => {
+      const o = c.officers.find((x) => x.title.toLowerCase() === title.toLowerCase());
+      if (o) return `<div class="slot filled"><span class="slot-t">${esc(title)}</span><span class="spacer">${esc(o.name)}</span><span class="tick">✓</span></div>`;
+      const i = inv.find((x) => x.position.toLowerCase() === title.toLowerCase());
+      if (i) return `<div class="slot pending"><span class="slot-t">${esc(title)}</span><span class="spacer footnote">Invited ${esc(i.email)}</span>
+        <button class="link-btn danger" data-action="revoke-invite" data-id="${i.id}">Cancel</button></div>`;
+      return `<div class="slot open"><span class="slot-t">${esc(title)}</span><span class="spacer footnote">Open</span>
+        <button class="btn primary small" data-action="invite" data-club="${c.id}" data-v="${esc(title)}">Invite</button></div>`;
+    };
+    const extras = [...c.officers.filter((o) => !CORE.some((t) => t.toLowerCase() === o.title.toLowerCase())).map((o) => o.title),
+      ...inv.filter((i) => !CORE.some((t) => t.toLowerCase() === i.position.toLowerCase())).map((i) => i.position)];
+    return `<div class="card stack team"><div class="row"><div class="section-header spacer" style="margin:0">Officer team</div>
+        <span class="badge ${n === 4 ? 'success' : 'warning'}">${n}/4 core</span></div>
+      ${n < 4 ? `<p class="footnote">A club goes live once a president, vice president, treasurer and secretary have all accepted. ${c.is_published ? '' : 'Then a moderator reviews it, usually within a day.'}</p>` : c.is_published ? '' : '<p class="footnote">All four are in. A moderator will review the club next, usually within a day.</p>'}
+      <div>${CORE.map(row).join('')}${extras.map(row).join('')}</div>
+      <button class="link-btn" data-action="invite" data-club="${c.id}" data-v="" style="justify-self:start">＋ Add another position</button></div>`;
+  }
   after.club = async (id) => {
-    if (!isOfficer(id)) return;
+    if (isMember(id)) {
+      const rows = await run(() => rpc('club_leaderboard', { p_club: id }));
+      const box = $('#leaderboard');
+      if (rows && box) box.innerHTML = rows.length ? `<div class="section-header">Most involved</div><div class="card">${rows.slice(0, 10).map((r) =>
+        `<div class="list-row${r.is_me ? ' me' : ''}"><span class="rank">${r.rank}</span><span class="spacer">${esc(r.name)}${r.is_me ? ' <span class="footnote">(you)</span>' : ''}</span><span class="footnote">${plural(r.attended, 'event')}</span></div>`).join('')}
+        ${rows.length > 10 && rows.slice(10).some((r) => r.is_me) ? `<div class="list-row me"><span class="rank">${rows.find((r) => r.is_me).rank}</span><span class="spacer">You</span></div>` : ''}</div>
+        <p class="footnote">Counts check-ins. Officers aren’t ranked. You can hide yourself in Profile.</p>` : '';
+    }
+    if (!isOfficer(id) || !club(id)?.requires_approval) return;
     const box = $('#join-requests'); if (!box) return;
     const reqs = await run(() => rpc('join_requests', { p_club: id }));
     if (!reqs || !$('#join-requests')) return;
@@ -258,41 +489,233 @@
       : '<p class="footnote">No one is waiting.</p>'}`;
   };
 
+  // ───────────── Start a club (full page, 3 steps) ─────────────
+  function newClub() {
+    S.nc = { step: 1, name: '', blurb: '', interest: (S.user.interests || [])[0] || INTERESTS[0], about: '', approval: false,
+      accent: ACCENTS[0][0], logoBlob: null, logoPreview: '', position: 'President', emails: {}, extra: [], busy: '' };
+  }
+  const monogramOf = (name) => {
+    const w = name.split(/\s+/).filter((x) => x && !['&', 'and', 'the', 'of', 'club'].includes(x.toLowerCase()));
+    return (w.slice(0, 2).map((x) => x[0]).join('') || '?').toUpperCase();
+  };
+  function newClubView() {
+    if (!S.nc) newClub();
+    const n = S.nc, st = n.step;
+    const steps = ['The basics', 'Logo', 'Officer team'];
+    const head = `${back('#/mine', 'Cancel')}</div><div class="dots" aria-label="Step ${st} of 3">${[1, 2, 3].map((i) => `<span class="${i <= st ? 'on' : ''}"></span>`).join('')}</div>
+      <h1 class="ob-title">${steps[st - 1]}</h1>`;
+    if (n.busy) return `${head}<div class="empty"><div class="spinner" style="margin:0 auto 16px"></div><h2>${esc(n.busy)}</h2></div>`;
+    const navBtns = (label) => `<div class="ob-nav"><button class="btn primary" data-action="nc-next">${label}</button>${st > 1 ? '<button class="link-btn" data-action="nc-back">Back</button>' : ''}</div>`;
+    if (st === 1) return `${head}<div class="stack-l">
+      <label class="field"><span>Club name</span><input class="input" data-nc="name" value="${esc(n.name)}" maxlength="80" placeholder="e.g. Hofstra Climbing Club"></label>
+      <label class="field"><span>What’s the point?</span><input class="input" data-nc="blurb" value="${esc(n.blurb)}" maxlength="160" placeholder="One line. e.g. Bouldering trips and beginner nights"></label>
+      <label class="field"><span>Interest</span><select class="input" data-nc="interest">${INTERESTS.map((i) => `<option ${n.interest === i ? 'selected' : ''}>${esc(i)}</option>`).join('')}</select></label>
+      <label class="field"><span>More about it <span class="muted" style="font-weight:400">(optional)</span></span><textarea class="input" data-nc="about" maxlength="2000" placeholder="Who it’s for, how often you meet, what a first meeting looks like">${esc(n.about)}</textarea></label>
+      <div class="card toggles">${toggle('approval', 'Officers approve new members', 'Leave off so anyone can join right away.', n.approval, 'nc').replace('name="approval"', 'data-nc="approval"')}</div>
+      ${navBtns('Next')}</div>`;
+    if (st === 2) return `${head}<div class="stack-l">
+      <p class="muted">Upload your logo, or use your initials and a color for now. You can change it later.</p>
+      <div class="logo-pick">
+        ${n.logoPreview ? `<img class="logo" src="${esc(n.logoPreview)}" alt="Logo preview" width="120" height="120">`
+          : `<div class="mono" style="width:120px;height:120px;font-size:44px;background:${esc(n.accent)}">${esc(monogramOf(n.name))}</div>`}
+        <div class="stack" style="gap:8px">
+          <label class="btn secondary small file-btn">${n.logoPreview ? 'Choose a different image' : 'Upload logo'}<input type="file" accept="image/png,image/jpeg,image/webp,image/heic" data-file="nc-logo" class="sr"></label>
+          ${n.logoPreview ? '<button class="link-btn danger" data-action="nc-clear-logo" style="text-align:left">Remove</button>' : ''}
+          <span class="footnote">Square works best. We crop it to a square.</span></div></div>
+      ${n.logoPreview ? '' : `<div class="field"><span>Color</span><div class="swatches">${ACCENTS.map(([h, nm]) => `<button type="button" class="swatch" style="background:${h}" data-action="nc-accent" data-v="${h}" aria-label="${nm}" aria-pressed="${n.accent === h}"></button>`).join('')}</div></div>`}
+      ${navBtns('Next')}</div>`;
+    const others = CORE.filter((t) => t !== n.position);
+    return `${head}<div class="stack-l">
+      <p class="muted">Every club on Vnua-connect has a president, vice president, treasurer and secretary. Invite them with their school email. The club goes live once all four accept.</p>
+      <label class="field"><span>Your position</span><select class="input" data-nc="position">${CORE.map((t) => `<option ${n.position === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <div class="stack">${others.map((t) => `<label class="field"><span>${t}</span><input class="input" type="email" inputmode="email" autocapitalize="off" spellcheck="false"
+          data-nc-email="${t}" value="${esc(n.emails[t] || '')}" placeholder="their school email"></label>`).join('')}</div>
+      ${n.extra.map((x, i) => `<div class="card stack extra"><label class="field"><span>Position</span><input class="input" data-nc-extra="${i}" data-k="title" value="${esc(x.title)}" maxlength="40" placeholder="e.g. Social media chair"></label>
+        <label class="field"><span>Email</span><input class="input" type="email" inputmode="email" autocapitalize="off" data-nc-extra="${i}" data-k="email" value="${esc(x.email)}" placeholder="their school email"></label>
+        <button class="link-btn danger" data-action="nc-del-extra" data-v="${i}" style="justify-self:start">Remove</button></div>`).join('')}
+      <button class="link-btn" data-action="nc-add-extra" style="justify-self:start">＋ Add another position</button>
+      <p class="footnote">Don’t have everyone yet? Leave a spot blank and invite them later from the club page.</p>
+      ${navBtns('Create club')}</div>`;
+  }
+  /** Center-crop to a 512px square JPEG. Also strips photo metadata (location etc.). */
+  async function squareImage(file, size = 512) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('validation|That image couldn’t be opened. Try a PNG or JPEG.')); i.src = url; });
+      const s = Math.min(img.naturalWidth, img.naturalHeight);
+      const cv = Object.assign(document.createElement('canvas'), { width: size, height: size });
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, size, size);
+      cx.drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, size, size);
+      return await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.86));
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function uploadLogo(clubId, blob) {
+    const path = `${clubId}/logo-${Date.now()}.jpg`;
+    await q(sb.storage.from('club-logos').upload(path, blob, { contentType: 'image/jpeg', upsert: false }));
+    const url = sb.storage.from('club-logos').getPublicUrl(path).data.publicUrl;
+    await rpc('set_club_logo', { p_club: clubId, p_url: url });
+  }
+  async function ncNext() {
+    const n = S.nc;
+    if (n.step === 1) {
+      if (n.name.trim().length < 2) return toast('Give the club a name.', true);
+      if (!n.blurb.trim()) return toast('Say what the club is for, in one line.', true);
+      if (S.clubs.some((c) => c.name.toLowerCase() === n.name.trim().toLowerCase())) return toast('A club with that name already exists.', true);
+    }
+    if (n.step < 3) { n.step++; render(); window.scrollTo(0, 0); return; }
+    const invites = [...CORE.filter((t) => t !== n.position).map((t) => ({ title: t, email: (n.emails[t] || '').trim().toLowerCase() })),
+      ...n.extra.map((x) => ({ title: x.title.trim(), email: x.email.trim().toLowerCase() }))].filter((x) => x.email);
+    const bad = invites.find((x) => !campusAllows(x.email) || x.email === S.user.email || (x.title.length < 2));
+    if (bad) return toast(bad.title.length < 2 ? 'Name each extra position.' : bad.email === S.user.email ? 'You can’t invite yourself.' : `${bad.email} isn’t a ${CFG.campus.name} email.`, true);
+    if (new Set(invites.map((x) => x.email)).size !== invites.length) return toast('Each person can hold one position.', true);
+    n.busy = 'Creating your club…'; render();
+    const name = n.name.trim();
+    const id = await run(() => rpc('create_club', { p_name: name, p_interest: n.interest, p_blurb: n.blurb.trim(), p_about: n.about.trim(),
+      p_monogram: monogramOf(name), p_accent: n.accent, p_requires_approval: n.approval, p_position: n.position }));
+    if (!id) { n.busy = ''; render(); return; }
+    if (n.logoBlob) { n.busy = 'Uploading the logo…'; render(); await run(() => uploadLogo(id, n.logoBlob)); }
+    const failed = [];
+    if (invites.length) { n.busy = 'Sending invites…'; render(); }
+    for (const x of invites) {
+      try { await rpc('invite_officer', { p_club: id, p_email: x.email, p_position: x.title }); } catch (e) { failed.push(`${x.email}: ${errMsg(e)}`); }
+    }
+    if (n.logoPreview) URL.revokeObjectURL(n.logoPreview);
+    S.nc = null; await run(loadAll);
+    location.hash = `#/club/${id}`;
+    if (failed.length) toast(`Club created, but some invites didn’t go out. ${failed[0]}`, true);
+    else toast(invites.length ? `${name} created. Invites sent.` : `${name} created. Invite your officers next.`);
+  }
+
+  // ───────────── Officer dashboard ─────────────
+  const dash = { tab: 'members', data: null };
+  function dashView(id) {
+    const c = club(id);
+    if (!c || !isOfficer(id)) return `${back(`#/club/${id}`, 'Club')}</div><div class="empty"><h2>Officers only</h2><p>Only this club’s officers can see its dashboard.</p></div>`;
+    return `${back(`#/club/${id}`, c.name)}<button class="link-btn" data-action="dash-csv" data-club="${id}">Export CSV</button></div>
+      <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px">Officer dashboard</h1><p class="muted" style="font-size:15px;margin-bottom:16px">${esc(c.name)} · every officer sees this</p>
+      <div id="dash-body"><div class="spinner" style="margin:40px auto"></div></div>`;
+  }
+  const supportersOf = (members) => members.filter((m) => !m.is_officer && m.attended > 0).slice(0, RECOGNITION_GOAL);
+  function dashBody(id) {
+    const d = dash.data, c = club(id), now = Date.now();
+    const members = d.members.filter((m) => !m.is_officer), eboard = d.members.filter((m) => m.is_officer);
+    const past = d.events.filter((e) => e.status !== 'cancelled' && new Date(e.starts_at) < now);
+    const turnout = past.length ? Math.round(past.reduce((s, e) => s + e.checked_in, 0) / past.length) : 0;
+    const rs = past.reduce((s, e) => s + e.rsvps, 0), sh = past.reduce((s, e) => s + e.showed, 0);
+    const rated = past.filter((e) => e.rating_avg != null);
+    const rating = rated.length ? (rated.reduce((s, e) => s + Number(e.rating_avg) * e.ratings, 0) / rated.reduce((s, e) => s + e.ratings, 0)).toFixed(1) : '–';
+    const supporters = supportersOf(d.members), supporterIds = new Set(supporters.map((m) => m.user_id));
+    const fading = members.filter((m) => m.fading && !(m.nudged_at && now - new Date(m.nudged_at) < 30 * 864e5));
+    const goal = Math.min(100, Math.round((members.length / RECOGNITION_GOAL) * 100));
+    let rank = 0, prev = null;
+    const ranked = members.map((m, i) => { if (m.attended !== prev) { rank = i + 1; prev = m.attended; } return { ...m, rank }; });
+    const memberRow = (m) => `<div class="list-row member">${m.is_officer ? avatar(m.name, 36) : `<span class="rank">${m.rank}</span>`}
+      <div class="spacer"><div style="font-weight:600">${esc(m.name)}${m.is_officer ? ` <span class="footnote">· ${esc(m.title || 'Officer')}</span>` : ''}</div>
+        <div class="footnote">${m.eligible ? `${m.attended} of ${plural(m.eligible, 'event')} since joining` : plural(m.attended, 'event')}${m.last_seen ? ` · last seen ${fmt.short(new Date(m.last_seen))}` : ''}</div>
+        <div class="badges">${supporterIds.has(m.user_id) ? badge('Top supporter', 'success') : ''}${m.fading ? badge('Hasn’t come lately', 'warning') : ''}${m.busy ? badge('Busy, still in') : ''}${m.nudged_at ? badge(`Checked in with ${fmt.rel(new Date(m.nudged_at))}`) : ''}</div></div>
+      ${m.email ? `<a class="icon-btn" href="mailto:${esc(m.email)}" aria-label="Email ${esc(m.name)}">${icon.mail}</a>` : ''}</div>`;
+    const evRow = (e) => { const st = new Date(e.starts_at); const up = st > now;
+      return `<a class="list-row" href="#/event/${e.id}" style="color:inherit;text-decoration:none"><div class="date-chip"><span class="dow">${fmt.dow(st)}</span><span class="day">${st.getDate()}</span></div>
+      <div class="spacer"><div style="font-weight:600">${esc(e.title)}${e.status === 'cancelled' ? ' <span class="footnote">(cancelled)</span>' : ''}</div>
+      <div class="footnote">${up ? `${plural(e.rsvps, 'RSVP')} so far` : `${e.checked_in} checked in · ${plural(e.rsvps, 'RSVP')} · ${pct(e.showed, e.rsvps)} showed up`}</div>
+      ${!up && e.status !== 'cancelled' ? `<div class="footnote">${e.rating_avg != null ? `★ ${e.rating_avg} from ${plural(e.ratings, 'rating')}` : e.ratings ? `${e.ratings}/3 ratings needed to show an average` : 'No ratings yet'}</div>` : ''}</div></a>`; };
+    const seg = (v, l) => `<button data-action="dash-tab" data-v="${v}" aria-pressed="${dash.tab === v}">${l}</button>`;
+    return `<div class="stack-l">
+      <div class="stats">${stat(members.length, 'Members', 'not counting e-board')}${stat(past.length ? turnout : '–', 'Avg turnout', plural(past.length, 'past event'))}
+        ${stat(rs ? pct(sh, rs) : '–', 'RSVPs who came', rs ? `${sh} of ${rs}` : 'no RSVPs yet')}${stat(rating, 'Avg rating', rated.length ? 'anonymous' : 'needs 3+ per event')}</div>
+      <div class="card stack recog">
+        <div class="row"><strong class="spacer">Official recognition</strong><span class="footnote">${members.length}/${RECOGNITION_GOAL} members</span></div>
+        <div class="bar" role="progressbar" aria-valuenow="${members.length}" aria-valuemin="0" aria-valuemax="${RECOGNITION_GOAL}"><span style="width:${goal}%"></span></div>
+        <p class="footnote">${members.length >= RECOGNITION_GOAL ? 'You have enough members to apply.' : `${RECOGNITION_GOAL - members.length} more member${RECOGNITION_GOAL - members.length === 1 ? '' : 's'} to reach ${RECOGNITION_GOAL}.`}
+          Your top supporters are the members who check in most (e-board not counted). CC them when you send the request.</p>
+        <div class="officer-actions">
+          <button class="btn primary" data-action="recog-mail" data-club="${id}">Draft the request email</button>
+          <button class="btn secondary" data-action="copy-emails" data-v="supporters">Copy top supporters (${supporters.length})</button>
+          <button class="btn secondary" data-action="copy-emails" data-v="all">Copy all member emails (${d.members.length})</button></div></div>
+      ${fading.length ? `<div class="card stack nudge"><strong>${plural(fading.length, 'member')} missed the last 3 events</strong>
+        <p class="footnote">Send a friendly check-in. They can say they’re still in, that they’re busy but want to stay, or leave. No hard feelings either way. Each person gets this at most once a month.</p>
+        <div class="badges">${fading.map((m) => badge(m.name)).join('')}</div>
+        <button class="btn secondary" data-action="nudge" data-club="${id}" data-users="${fading.map((m) => m.user_id).join(',')}">Send “Still interested?”</button></div>` : ''}
+      <div class="segmented" role="group" aria-label="Show">${seg('members', 'Members')}${seg('events', 'Events')}</div>
+      ${dash.tab === 'members' ? `<div class="card">${ranked.map(memberRow).join('') || '<p class="footnote" style="padding:12px 0">No members yet. Share the club page to get your first ones.</p>'}</div>
+        <div class="section-header">E-board · not ranked</div><div class="card">${eboard.map(memberRow).join('')}</div>`
+      : `<div class="card">${d.events.map(evRow).join('') || '<p class="footnote" style="padding:12px 0">No events yet.</p>'}</div>`}
+      <p class="footnote">Ratings are anonymous. Officers only see an event’s average once 3 people have rated it.</p></div>`;
+  }
+  after.dash = async (id) => {
+    if (!isOfficer(id)) return;
+    const d = await run(() => rpc('club_insights', { p_club: id }));
+    if (!d || !$('#dash-body')) return;
+    dash.data = d; dash.club = id; $('#dash-body').innerHTML = dashBody(id);
+  };
+  function membersCsv(d) {
+    const c = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const top = new Set(supportersOf(d.members).map((m) => m.user_id));
+    return ['name,email,major,year,role,position,events_attended,events_since_joining,rsvps,last_seen,joined,top_supporter',
+      ...d.members.map((m) => [c(m.name), c(m.email), c(m.major), c(m.class_year), m.is_officer ? 'e-board' : m.role, c(m.title),
+        m.attended, m.eligible, m.rsvps, m.last_seen ? m.last_seen.slice(0, 10) : '', m.joined_at.slice(0, 10), top.has(m.user_id) ? 'yes' : ''].join(','))].join('\n');
+  }
+
   // ───────────── Events ─────────────
   function eventsView() {
-    const list = visibleEvents().filter((e) => S.evScope === 'all' ? true
-      : S.evScope === 'mine' ? e.hosts.some((h) => membership(h)?.status === 'active') : S.rsvps.has(e.id));
+    const now = new Date();
+    const list = visibleEvents().filter((e) => e.end > new Date(now - 864e5) && (S.evScope === 'all' ? true
+      : S.evScope === 'mine' ? e.hosts.some((h) => isMember(h)) : S.rsvps.has(e.id)));
     const days = [];
     list.forEach((e) => { const last = days[days.length - 1]; if (last && sameDay(last[0], e.start)) last[1].push(e); else days.push([e.start, [e]]); });
     const seg = (v, l) => `<button data-action="ev-scope" data-v="${v}" aria-pressed="${S.evScope === v}">${l}</button>`;
-    return `<h1 class="large-title">Events</h1><div class="stack-l">
+    return `${titleBar('Events')}<div class="stack-l">
       <div class="segmented" role="group" aria-label="Show">${seg('all', 'All events')}${seg('mine', 'My clubs')}${seg('going', 'Going')}</div>
-      ${days.map(([d, evs]) => `<div class="stack"><div class="section-header">${sameDay(d, new Date()) ? 'Today' : esc(fmt.day(d))}</div>${evs.map(eventRow).join('')}</div>`).join('')
+      ${days.map(([d, evs]) => `<div class="stack"><div class="section-header">${sameDay(d, now) ? 'Today' : esc(fmt.day(d))}</div>${evs.map(eventRow).join('')}</div>`).join('')
         || '<div class="empty"><h2>No events</h2><p>Join a club or RSVP to see events here.</p></div>'}</div>`;
   }
-
   function eventView(id) {
     const e = event(id);
     if (!e) return `${back('#/events', 'Events')}</div><div class="empty"><h2>Event not found</h2></div>`;
-    const going = S.rsvps.has(e.id), live = e.status !== 'cancelled';
+    const going = S.rsvps.has(e.id), live = e.status !== 'cancelled', over = e.end < new Date();
     return `${back('#/events', 'Events')}<button class="icon-btn" data-action="report" data-type="event" data-id="${e.id}" data-name="${esc(e.title)}" aria-label="Report event">⚑</button></div>
       <div class="stack-l">
         <div class="stack" style="gap:8px">${statusBadge(e) ? `<div>${statusBadge(e)}</div>` : ''}
           <h1 style="font-size:28px;font-weight:800">${esc(e.title)}</h1>
           <div style="color:var(--accent);font-weight:600;font-size:15px">${e.hosts.map((h) => club(h) ? `<a href="#/club/${h}" style="text-decoration:none">${esc(club(h).name)}</a>` : '').join(' + ')}</div></div>
-        ${e.status === 'rescheduled' && e.previous_start ? `<p class="notice warning">ℹ︎ Moved from ${esc(fmt.full(new Date(e.previous_start)))}</p>` : ''}
+        ${e.status === 'rescheduled' && e.previous_start ? `<p class="notice warning">Moved from ${esc(fmt.full(new Date(e.previous_start)))}</p>` : ''}
         ${!live ? '<p class="notice warning"><strong>This event was cancelled.</strong></p>' : ''}
-        <div class="card stack"><div>🕒 ${esc(fmt.full(e.start))}</div>${e.location ? `<div>📍 ${esc(e.location)}</div>` : ''}<div>👤 Organized by ${esc(e.organizer)}</div></div>
+        <dl class="card facts"><div><dt>When</dt><dd>${esc(fmt.full(e.start))} – ${esc(fmt.time(e.end))}</dd></div>
+          ${e.location ? `<div><dt>Where</dt><dd>${esc(e.location)}</dd></div>` : ''}<div><dt>Organizer</dt><dd>${esc(e.organizer)}</dd></div></dl>
         ${e.details ? `<p>${esc(e.details)}</p>` : ''}
-        ${live ? `<div class="stack">
-          <button class="btn ${going ? 'secondary' : 'primary'}" data-action="rsvp" data-id="${e.id}" aria-pressed="${going}">${going ? '✓ Going' : '✋ RSVP'}</button>
-          <a class="btn secondary" href="#/pass/${e.id}">▦ Show my check-in pass</a>
-          <button class="btn secondary" data-action="ics" data-id="${e.id}">📅 Add to Calendar</button></div>` : ''}
+        <div id="my-rating"></div>
+        ${live && !over ? `<div class="stack">
+          <button class="btn ${going ? 'secondary' : 'primary'}" data-action="rsvp" data-id="${e.id}" aria-pressed="${going}">${going ? '✓ Going' : 'RSVP'}</button>
+          <a class="btn secondary" href="#/pass/${e.id}">Show my check-in pass</a>
+          <button class="btn secondary" data-action="ics" data-id="${e.id}">Add to calendar</button></div>` : ''}
+        ${live && over ? `<a class="btn secondary" href="#/pass/${e.id}">Show my check-in pass</a>` : ''}
         ${runsEvent(e) ? `<div class="stack"><div class="section-header">Officer tools</div>
+          <div id="event-stats" class="stack"><div class="spinner" style="margin:12px auto"></div></div>
           <a class="btn primary" href="#/checkin/${e.id}">Run check-in</a>
-          ${live ? `<button class="btn danger" data-action="cancel-event" data-id="${e.id}">Cancel event</button>` : ''}</div>` : ''}
+          <p class="footnote">Reminders: ${e.reminders?.length ? esc(REMINDERS.filter(([m]) => e.reminders.includes(m)).map(([, l]) => l).join(', ')) + ' before' : 'none'}. A rating request goes to everyone who checked in, 15 minutes after it ends.</p>
+          ${live && !over ? `<button class="btn danger" data-action="cancel-event" data-id="${e.id}">Cancel event</button>` : ''}</div>` : ''}
       </div>`;
   }
+  after.event = async (id) => {
+    const e = event(id); if (!e) return;
+    if (e.end < new Date() && e.status !== 'cancelled') {
+      const [att, mine] = await Promise.all([
+        run(() => q(sb.from('attendance').select('id').eq('event_id', id).eq('user_id', S.user.id).is('removed_at', null))),
+        run(() => rpc('my_rating', { p_event: id })),
+      ]);
+      const box = $('#my-rating');
+      if (box && att?.length && Date.now() - e.end < 7 * 864e5) box.innerHTML = `<div class="card stack rate-card"><strong>${mine ? 'Your rating' : 'How was it?'}</strong>
+        ${stars(id, mine || 0, 'big')}<p class="footnote">Anonymous. Officers only see the average once 3 people have rated.</p></div>`;
+    }
+    if (!runsEvent(e)) return;
+    const s = await run(() => rpc('event_stats', { p_event: id }));
+    const box = $('#event-stats'); if (!s || !box) return;
+    box.innerHTML = `<div class="stats">${stat(s.rsvps, 'RSVPs')}${stat(s.checked_in, 'Checked in')}${stat(pct(s.showed, s.rsvps), 'RSVPs who came', `${s.showed} of ${s.rsvps}`)}
+      ${stat(s.rating_avg != null ? '★ ' + s.rating_avg : '–', 'Rating', s.rating_avg != null ? plural(s.ratings, 'rating') : `${s.ratings}/3 needed`)}</div>
+      ${s.rating_dist ? `<div class="card dist">${s.rating_dist.slice().reverse().map((n, i) => `<div class="row"><span class="footnote" style="width:28px">${5 - i}★</span><div class="bar spacer"><span style="width:${pct(n, s.ratings)}"></span></div><span class="footnote" style="width:24px;text-align:right">${n}</span></div>`).join('')}</div>` : ''}
+      ${s.rsvp_list.length ? `<details class="card"><summary><strong>RSVP list</strong> <span class="footnote">· ${s.rsvp_list.length}</span></summary>${s.rsvp_list.map((r) =>
+        `<div class="list-row"><span class="spacer">${esc(r.name)}</span>${r.checked_in ? '<span class="badge success">Came</span>' : '<span class="footnote">Not checked in</span>'}</div>`).join('')}</details>` : ''}`;
+  };
 
   // ───────────── Pass ─────────────
   function passView(id) {
@@ -317,7 +740,7 @@
     const tick = setInterval(() => {
       if (!pass) return;
       const left = Math.max(0, Math.ceil((pass.exp - Date.now()) / 1000));
-      const t = $('#pass-timer'); if (t) t.textContent = `↻ Refreshes in ${left}s`;
+      const t = $('#pass-timer'); if (t) t.textContent = `Refreshes in ${left}s`;
       if (left <= 2) { pass = null; issue(); }
     }, 1000);
     issue();
@@ -325,13 +748,13 @@
   };
 
   // ───────────── Officer check-in ─────────────
-  let ci = { mode: 'scan', records: [], last: null };
+  const ci = { mode: 'scan', records: [] };
   function checkinView(id) {
     const e = event(id);
-    if (!e || !runsEvent(e)) return `${back(`#/event/${id}`, 'Event')}</div><div class="empty"><h2>Officers only</h2><p>Only this club's officers can run check-in.</p></div>`;
+    if (!e || !runsEvent(e)) return `${back(`#/event/${id}`, 'Event')}</div><div class="empty"><h2>Officers only</h2><p>Only this club’s officers can run check-in.</p></div>`;
     const seg = (v, l) => `<button data-action="ci-mode" data-v="${v}" aria-pressed="${ci.mode === v}">${l}</button>`;
     return `${back(`#/event/${id}`, 'Event')}<button class="link-btn" data-action="csv" data-id="${id}">Export CSV</button></div>
-      <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px">Check-in</h1><p class="muted" style="font-size:15px;margin-bottom:16px">${esc(e?.title || '')}</p>
+      <h1 style="font-size:28px;font-weight:800;margin:8px 0 4px">Check-in</h1><p class="muted" style="font-size:15px;margin-bottom:16px">${esc(e.title)}</p>
       <div class="stack-l"><div class="segmented" role="group" aria-label="Mode">${seg('scan', 'Scan')}${seg('lookup', 'Look up')}${seg('guest', 'Guest')}</div>
         <div id="ci-mode">${ciModeHTML()}</div>
         <p class="result" id="ci-result" aria-live="assertive"></p>
@@ -340,9 +763,9 @@
   }
   function ciModeHTML() {
     if (ci.mode === 'scan') return `<div class="scanner"><video id="cam" playsinline muted></video><div class="frame"></div></div>
-      <p class="footnote" id="cam-note" style="margin-top:8px">Point the camera at a member's pass. Safari will ask for camera access.</p>`;
+      <p class="footnote" id="cam-note" style="margin-top:8px">Point the camera at a member’s pass. Safari will ask for camera access.</p>`;
     if (ci.mode === 'lookup') return `<label class="search"><span class="sr">Search members</span><input class="input" id="lookup" type="search" placeholder="Search members and RSVPs" autocomplete="off"></label><div id="lookup-results" class="card" style="margin-top:12px;padding-top:4px;padding-bottom:4px"><p class="footnote" style="padding:12px 0">Type a name.</p></div>`;
-    return `<form id="guest-form" class="row"><label class="spacer"><span class="sr">Guest's name</span><input class="input" name="guest" placeholder="Guest's name" autocomplete="off"></label><button class="btn primary small" style="min-height:48px">Check in</button></form>`;
+    return `<form id="guest-form" class="row"><label class="spacer"><span class="sr">Guest’s name</span><input class="input" name="guest" placeholder="Guest’s name" autocomplete="off"></label><button class="btn primary small" style="min-height:48px">Check in</button></form>`;
   }
   async function ciReload(id) {
     const rows = await run(() => q(sb.from('attendance').select('*').eq('event_id', id).order('recorded_at', { ascending: false })));
@@ -422,26 +845,98 @@
     const by = (f) => visibleClubs().filter((c) => membership(c.id) && f(membership(c.id)));
     const lead = by((m) => m.role === 'officer' && m.status === 'active'), mem = by((m) => m.role !== 'officer' && m.status === 'active'), pend = by((m) => m.status === 'pending');
     const group = (t, l) => l.length ? `<div class="stack"><div class="section-header">${t}</div>${l.map(clubRow).join('')}</div>` : '';
-    return `<div class="row"><h1 class="large-title spacer">My Clubs</h1><button class="icon-btn" data-action="start-club" aria-label="Start a club" style="margin-top:16px">＋</button></div>
+    return `${titleBar('My Clubs', '<a class="icon-btn" href="#/new-club" aria-label="Start a club">＋</a>')}
       <div class="stack-l">${lead.length + mem.length + pend.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend)
-        : `<div class="empty"><h2>No clubs yet</h2><p style="margin-bottom:16px">Find a club in Discover and join, or help found one.</p><button class="btn primary" style="max-width:240px" data-action="start-club">Start a club</button></div>`}</div>`;
+        + '<a class="btn secondary" href="#/new-club">Start a club</a>'
+        : `<div class="empty"><h2>No clubs yet</h2><p style="margin-bottom:16px">Find a club in Discover and join, or start your own.</p><a class="btn primary" style="max-width:240px;margin:0 auto" href="#/new-club">Start a club</a></div>`}</div>`;
   }
+
+  // ───────────── People ─────────────
+  function peopleView() {
+    if (!S.user.discoverable) return `${titleBar('People')}<div class="card stack"><strong>Meet people who like what you like</strong>
+      <p class="muted" style="font-size:15px">Turn this on to see students who share your interests, and let them see you. Only the contact details you choose are shown.</p>
+      <button class="btn primary" data-action="go-visible">Turn on</button></div>`;
+    return `${titleBar('People')}<p class="muted" style="margin:-6px 0 16px;font-size:15px">Students who share ${S.user.interests?.length ? esc(S.user.interests.join(', ')) : 'your interests'}.</p>
+      <div id="people" class="stack"><div class="spinner" style="margin:40px auto"></div></div>`;
+  }
+  after.people = async () => {
+    if (!S.user.discoverable) return;
+    const rows = await run(() => rpc('people_to_meet'));
+    const box = $('#people'); if (!rows || !box) return;
+    box.innerHTML = rows.map((p) => `<div class="card person-card"><div class="row" style="align-items:flex-start">${avatar(p.name, 52)}
+        <div class="spacer"><div style="font-weight:700;font-size:17px">${esc(p.name)}${p.pronouns ? ` <span class="footnote">${esc(p.pronouns)}</span>` : ''}</div>
+          <div class="footnote">${esc([p.major, p.class_year].filter(Boolean).join(' · '))}</div></div>
+        <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">⚑</button></div>
+      ${p.bio ? `<p style="margin-top:8px">${esc(p.bio)}</p>` : ''}
+      <div class="badges">${p.interests.map((i) => badge(i, p.shared.includes(i) ? 'accent' : '')).join('')}${p.common_clubs ? badge(`${plural(p.common_clubs, 'club')} in common`, 'success') : ''}</div>
+      ${contactButtons(p) || '<p class="footnote" style="margin-top:8px">Hasn’t shared contact info yet. You might meet at a club event.</p>'}</div>`).join('')
+      || `<div class="empty"><h2>No one yet</h2><p>As more students join with ${S.user.interests?.length ? 'your interests' : 'interests set'}, they’ll show up here.</p><button class="btn secondary" style="max-width:240px;margin:16px auto 0" data-action="edit-profile">Edit interests</button></div>`;
+  };
+
+  // ───────────── Inbox ─────────────
+  const KIND = { reminder: 'Reminder', new_event: 'New event', cancelled: 'Cancelled', rating: 'Rate it', nudge: 'Check-in', invite: 'Officer invite',
+    approved: 'Approved', team_complete: 'Officer team', announcement: 'Announcement' };
+  function inboxView() {
+    const inv = myInvites();
+    const items = S.notifs.filter((n) => !(n.kind === 'invite' && inv.some((i) => n.dedupe === 'inv:' + i.id)));
+    const link = (n) => n.event_id && event(n.event_id) ? `#/event/${n.event_id}` : n.club_id && club(n.club_id) ? `#/club/${n.club_id}` : '';
+    const item = (n) => {
+      const href = link(n), done = !!n.acted_at;
+      let actions = '';
+      if (n.kind === 'rating' && n.event_id) actions = done ? '<p class="footnote">Thanks for rating.</p>' : stars(n.event_id, 0);
+      if (n.kind === 'nudge') actions = done ? '<p class="footnote">Thanks for letting them know.</p>' : `<div class="stack" style="gap:8px">
+        <button class="btn primary small" data-action="nudge-answer" data-id="${n.id}" data-v="stay">I’m still in</button>
+        <button class="btn secondary small" data-action="nudge-answer" data-id="${n.id}" data-v="busy">Busy lately, but keep me in</button>
+        <button class="btn secondary small" data-action="nudge-answer" data-id="${n.id}" data-v="leave">Leave the club</button></div>`;
+      return `<div class="card note${n.read_at ? '' : ' unread'}"><div class="row"><span class="kicker spacer">${esc(KIND[n.kind] || 'Update')}</span><span class="footnote">${fmt.rel(new Date(n.created_at))}</span></div>
+        ${href ? `<a href="${href}" class="note-title">${esc(n.title)}</a>` : `<div class="note-title">${esc(n.title)}</div>`}
+        ${n.body ? `<p class="muted" style="font-size:15px">${esc(n.body)}</p>` : ''}${actions}</div>`;
+    };
+    return `${back('#/discover', 'Back')}</div><h1 class="large-title" style="margin-top:8px">Inbox</h1><div class="stack">
+      ${inv.map((i) => `<div class="card stack invite-card"><span class="kicker">Officer invite</span><strong>${esc(club(i.club_id)?.name || 'A club')} wants you as ${esc(i.position)}</strong>
+        <p class="muted" style="font-size:15px">If you accept, your name, position and school email show on the club page.</p>
+        <div class="row"><a class="btn secondary small" href="#/club/${i.club_id}">View club</a><span class="spacer"></span>
+        <button class="btn secondary small" data-action="invite-answer" data-id="${i.id}" data-v="0">Decline</button>
+        <button class="btn primary small" data-action="invite-answer" data-id="${i.id}" data-v="1">Accept</button></div></div>`).join('')}
+      ${items.map(item).join('') || (inv.length ? '' : '<div class="empty"><h2>All caught up</h2><p>Reminders, announcements and invites from your clubs show up here. Nothing else.</p></div>')}</div>`;
+  }
+  let inboxAt = 0;
+  after.inbox = () => {
+    if (Date.now() - inboxAt > 3000) {           // always show the latest when you open the inbox
+      inboxAt = Date.now();
+      run(loadInbox).then(() => { if (route().name === 'inbox') render(); });
+      return;
+    }
+    const ids = S.notifs.filter((n) => !n.read_at).map((n) => n.id);
+    if (!ids.length) return;
+    // Mark as read on the server; keep the highlight until you leave the screen.
+    run(() => rpc('mark_notifications_read', { p_ids: ids })).then(() => { const t = new Date().toISOString(); S.notifs.forEach((n) => { if (ids.includes(n.id)) n.read_at = t; }); });
+  };
 
   // ───────────── Profile ─────────────
   function profileView() {
     const u = S.user, active = Object.values(S.memberships).filter((m) => m.status === 'active').length;
     const blocked = S.clubs.filter((c) => S.blocked.has(c.id));
-    return `<h1 class="large-title">Profile</h1><div class="stack-l">
-      <div class="card"><h2 style="font-size:22px;font-weight:800">${esc(u.name)}</h2><p class="muted" style="font-size:15px">${esc(u.email)}</p><p class="footnote">${esc(CFG.campus.name)}</p></div>
+    return `${titleBar('Profile')}<div class="stack-l">
+      <div class="card stack"><div class="row" style="align-items:flex-start">${avatar(u.name, 64)}<div class="spacer">
+        <h2 style="font-size:22px;font-weight:800">${esc(u.name)}${u.pronouns ? ` <span class="footnote" style="font-weight:400">${esc(u.pronouns)}</span>` : ''}</h2>
+        <p class="muted" style="font-size:15px">${esc([u.major, u.class_year].filter(Boolean).join(' · ') || CFG.campus.name)}</p>
+        <p class="footnote">${esc(u.email)}</p></div></div>
+        ${u.bio ? `<p>${esc(u.bio)}</p>` : ''}
+        ${u.interests?.length ? `<div class="badges">${u.interests.map((i) => badge(i, 'accent')).join('')}</div>` : ''}
+        ${contactButtons({ email: u.share_email ? u.email : '', phone: u.share_phone ? u.phone : '', linkedin: u.share_linkedin ? u.linkedin : '' })}
+        <button class="btn secondary" data-action="edit-profile">Edit profile</button></div>
       <div class="stack"><div class="section-header">Involvement record</div><div class="card" id="involvement">
         <div class="list-row"><span class="spacer">Clubs</span><strong>${active}</strong></div>
         <div class="list-row"><span class="spacer">Events attended</span><strong id="inv-count">…</strong></div><div id="inv-list"></div></div>
-        <p class="footnote">Your check-ins, kept so you can show what you've been part of.</p></div>
+        <p class="footnote">Your check-ins, kept so you can show what you’ve been part of.</p></div>
+      <div class="stack"><div class="section-header">Privacy</div><div class="card toggles">
+        ${toggle('discoverable', 'Show me in People', 'Students with the same interests can find you.', u.discoverable).replace('name="discoverable"', 'data-privacy="discoverable"')}
+        ${toggle('leaderboard', 'Show me on club leaderboards', 'Members see who comes most. Officers always see attendance.', u.leaderboard).replace('name="leaderboard"', 'data-privacy="leaderboard"')}</div></div>
       ${blocked.length ? `<div class="stack"><div class="section-header">Blocked clubs</div><div class="card">${blocked.map((c) => `<div class="list-row"><span class="spacer">${esc(c.name)}</span><button class="link-btn" data-action="unblock" data-club="${c.id}">Unblock</button></div>`).join('')}</div></div>` : ''}
       <div class="stack"><div class="section-header">Help</div><div class="card">
-        <div class="list-row"><a href="mailto:support@vnuaconnect.example">Contact support</a></div>
-        <div class="list-row"><a href="prototype/">Original design prototype</a></div>
-        <div class="list-row"><span class="spacer muted" style="font-size:15px">Add to Home Screen: Share → Add to Home Screen</span></div></div></div>
+        <div class="list-row"><span class="spacer muted" style="font-size:15px">On iPhone: Share → Add to Home Screen to use it like an app</span></div>
+        <div class="list-row"><a href="prototype/">Original design prototype</a></div></div></div>
       <div class="card stack"><button class="btn secondary" data-action="signout">Sign out</button><button class="btn danger" data-action="delete-account">Delete account</button></div></div>`;
   }
   after.profile = async () => {
@@ -450,6 +945,40 @@
     $('#inv-count').textContent = rows.length;
     $('#inv-list').innerHTML = rows.map((r) => `<div class="list-row"><div><div style="font-weight:600;font-size:15px">${esc(event(r.event_id)?.title || 'Event')}</div><div class="footnote">${esc(fmt.day(new Date(r.recorded_at)))}</div></div></div>`).join('');
   };
+  /** Save profile changes (merges into the current profile). */
+  async function saveProfile(patch) {
+    const u = { ...S.user, ...patch };
+    await rpc('save_profile', { p_name: u.name, p_major: u.major, p_year: u.class_year, p_pronouns: u.pronouns, p_interests: u.interests,
+      p_bio: u.bio, p_phone: u.phone, p_linkedin: u.linkedin, p_share_email: u.share_email, p_share_phone: u.share_phone,
+      p_share_linkedin: u.share_linkedin, p_discoverable: u.discoverable, p_leaderboard: u.leaderboard });
+    S.user = await loadProfile(S.user.id);
+  }
+  function editProfileSheet() {
+    const u = S.user;
+    const form = openSheet('Edit profile', `<div class="stack-l">
+      <label class="field"><span>Name</span><input class="input" name="name" value="${esc(u.name)}" maxlength="80" required></label>
+      <label class="field"><span>Pronouns</span><input class="input" name="pronouns" value="${esc(u.pronouns)}" maxlength="30"></label>
+      <label class="field"><span>Major</span><input class="input" name="major" value="${esc(u.major)}" maxlength="80"></label>
+      <label class="field"><span>Year</span><select class="input" name="class_year"><option value="">—</option>${YEARS.map((y) => `<option ${u.class_year === y ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
+      <div class="field"><span>Interests (up to 3)</span><div class="chip-wrap">${INTERESTS.map((i) => `<label class="chip-check"><input type="checkbox" name="interests" value="${esc(i)}" ${u.interests?.includes(i) ? 'checked' : ''}><span>${esc(i)}</span></label>`).join('')}</div></div>
+      <label class="field"><span>A line about you</span><input class="input" name="bio" value="${esc(u.bio)}" maxlength="280"></label>
+      <label class="field"><span>Phone</span><input class="input" name="phone" type="tel" value="${esc(u.phone)}" maxlength="30"></label>
+      <label class="field"><span>LinkedIn</span><input class="input" name="linkedin" type="url" autocapitalize="off" value="${esc(u.linkedin)}" maxlength="200" placeholder="linkedin.com/in/your-name"></label>
+      <div class="card toggles">${toggle('share_email', 'Show my school email', '', u.share_email)}${toggle('share_phone', 'Show my phone number', '', u.share_phone)}${toggle('share_linkedin', 'Show my LinkedIn', '', u.share_linkedin)}</div>
+      <p class="footnote">Shown to students in People and, if you’re an officer, on your club’s page.</p></div>`,
+    { action: 'Save', onSubmit: async (fd) => {
+      const interests = fd.getAll('interests');
+      if (interests.length > 3) { toast('Pick up to 3 interests.', true); return false; }
+      const ok = await run(() => saveProfile({ name: (fd.get('name') || '').trim(), pronouns: (fd.get('pronouns') || '').trim(), major: (fd.get('major') || '').trim(),
+        class_year: fd.get('class_year') || '', interests, bio: (fd.get('bio') || '').trim(), phone: (fd.get('phone') || '').trim(),
+        linkedin: (fd.get('linkedin') || '').trim(), share_email: fd.get('share_email') === 'on', share_phone: fd.get('share_phone') === 'on',
+        share_linkedin: fd.get('share_linkedin') === 'on' }).then(() => true));
+      if (ok) { await run(loadAll); toast('Profile saved'); render(); } return !!ok;
+    } });
+    form.addEventListener('change', (e) => {
+      if (e.target.name === 'interests' && form.querySelectorAll('input[name=interests]:checked').length > 3) { e.target.checked = false; toast('Up to 3. Unpick one first.', true); }
+    });
+  }
 
   // ───────────── Sheets ─────────────
   function openSheet(title, body, { action = '', onSubmit, cancel = 'Cancel' } = {}) {
@@ -463,7 +992,7 @@
       const ok = await onSubmit?.(new FormData(form), form);
       if (ok) closeSheet(); else if (btn) btn.disabled = false;
     });
-    setTimeout(() => form.querySelector('input:not([type=radio]):not([type=hidden]), textarea')?.focus(), 250);
+    setTimeout(() => form.querySelector('input:not([type=radio]):not([type=hidden]):not([type=checkbox]), textarea')?.focus(), 250);
     return form;
   }
   function closeSheet() { $('#sheet-root').innerHTML = ''; document.body.style.overflow = ''; }
@@ -479,18 +1008,19 @@
 
   function joinSheet(c) {
     openSheet(c.name, `<div class="stack-l"><div class="stack"><div class="section-header">Join as</div>${radios('role', [
-        ['member', 'Member', ''], ['founding', 'Founding member', c.recognition === 'recognized' ? 'Help run the club day to day.' : 'Counts toward the students a club needs to apply for recognition.']], 'member')}</div>
-      <div class="stack"><div class="section-header">Emails from ${esc(c.name)}</div>${radios('contact', Object.entries(contactLabel).map(([k, v]) => [k, v, '']), 'events')}</div></div>`,
+        ['member', 'Member', ''], ['founding', 'Founding member', c.recognition === 'recognized' ? 'Help run the club day to day.' : 'You want to help get it off the ground.']], 'member')}</div>
+      <div class="stack"><div class="section-header">Notifications</div>${radios('notify', NOTIFY, 'rsvp')}</div>
+      <p class="footnote">The club’s officers will see your name, school email, and which events you check in to.</p></div>`,
     { action: c.requires_approval ? 'Request' : 'Join', onSubmit: async (fd) => {
-      const m = await run(() => rpc('join_club', { p_club: c.id, p_role: fd.get('role'), p_contact: fd.get('contact'), p_request: uuid() }));
+      const m = await run(() => rpc('join_club', { p_club: c.id, p_role: fd.get('role'), p_contact: 'events', p_notify: fd.get('notify'), p_request: uuid() }));
       if (!m) return false;
-      S.memberships[c.id] = m; toast(m.status === 'pending' ? `Request sent to ${c.name}'s officers` : `You joined ${c.name}`); render(); return true;
+      S.memberships[c.id] = { ...m, user_id: S.user.id }; toast(m.status === 'pending' ? `Request sent to ${c.name}’s officers` : `You joined ${c.name}`); render(); return true;
     } });
   }
-  const REASONS = [['impersonation', 'Pretending to be another group'], ['duplicate', 'Duplicate of an existing club or event'],
-    ['unsafe', 'Inappropriate or unsafe content'], ['wrong_status', 'Status claim looks wrong'], ['other', 'Something else']];
+  const REASONS = [['impersonation', 'Pretending to be someone else'], ['duplicate', 'Duplicate'],
+    ['unsafe', 'Inappropriate, unsafe or harassing'], ['wrong_status', 'Status claim looks wrong'], ['other', 'Something else']];
   function reportSheet(type, id, name) {
-    openSheet('Report', `<div class="stack-l"><div class="stack"><div class="section-header">What's wrong with ${esc(name)}?</div>${radios('reason', REASONS.map(([k, v]) => [k, v, '']), '')}</div>
+    openSheet('Report', `<div class="stack-l"><div class="stack"><div class="section-header">What’s wrong with ${esc(name)}?</div>${radios('reason', REASONS.map(([k, v]) => [k, v, '']), '')}</div>
       <label class="field"><span>Details (optional)</span><textarea class="input" name="detail" maxlength="1000" placeholder="Anything that helps a moderator"></textarea></label></div>`,
     { action: 'Send', onSubmit: async (fd) => {
       if (!fd.get('reason')) { toast('Pick a reason.', true); return false; }
@@ -499,41 +1029,77 @@
     } });
   }
   function clubMenu(c) {
+    const officer = isOfficer(c.id);
     openSheet(c.name, `<div class="card stack">
+      ${officer ? `<button type="button" class="btn secondary" data-action="edit-club" data-club="${c.id}">Edit club</button>
+      <button type="button" class="btn secondary" data-action="officer-info" data-club="${c.id}">Edit my “contact me about”</button>
+      <button type="button" class="btn secondary" data-action="step-down" data-club="${c.id}">Step down as officer</button>` : ''}
       <button type="button" class="btn secondary" data-action="share" data-club="${c.id}">Share club</button>
-      <button type="button" class="btn secondary" data-action="report" data-type="club" data-id="${c.id}" data-name="${esc(c.name)}">⚑ Report club</button>
-      <button type="button" class="btn danger" data-action="block" data-club="${c.id}">Block club</button></div>`, { cancel: 'Close' });
+      <button type="button" class="btn secondary" data-action="report" data-type="club" data-id="${c.id}" data-name="${esc(c.name)}">Report club</button>
+      ${officer ? '' : `<button type="button" class="btn danger" data-action="block" data-club="${c.id}">Block club</button>`}</div>`, { cancel: 'Close' });
   }
-
-  const INTERESTS = ['Academic', 'Creative', 'Cultural', 'Engineering', 'Games', 'Media', 'Performing arts', 'Professional', 'Service', 'Sports', 'Wellness'];
-  const ACCENTS = [['#1f5a6b', 'Harbor'], ['#8a3b2e', 'Brick'], ['#2c455d', 'Steel'], ['#2f5d3a', 'Pine'], ['#4a3a6b', 'Plum'], ['#7a4f12', 'Clay']];
-  const monogramOf = (name) => {
-    const w = name.split(/\s+/).filter((x) => x && !['&', 'and', 'the', 'of'].includes(x.toLowerCase()));
-    return (w.slice(0, 2).map((x) => x[0]).join('') || '?').toUpperCase();
-  };
-  function startClubSheet() {
-    const form = openSheet('Start a club', `<div class="stack-l">
-      <div class="row"><div class="mono" id="sc-mono" style="width:52px;height:52px;font-size:20px;background:${ACCENTS[0][0]}">?</div>
-        <label class="spacer"><span class="sr">Club name</span><input class="input" name="name" placeholder="Club name" maxlength="80" required></label></div>
-      <label class="field"><span>One line about the club</span><input class="input" name="blurb" maxlength="160" required></label>
-      <label class="field"><span>Interest</span><select class="input" name="interest">${INTERESTS.map((i) => `<option>${i}</option>`).join('')}</select></label>
-      <div class="field"><span>Color</span><div class="swatches">${ACCENTS.map(([h, n], i) => `<button type="button" class="swatch" style="background:${h}" data-action="swatch" data-v="${h}" aria-label="${n}" aria-pressed="${i === 0}"></button>`).join('')}</div>
-        <input type="hidden" name="accent" value="${ACCENTS[0][0]}"></div>
-      <label class="field"><span>About</span><textarea class="input" name="about" maxlength="2000" placeholder="What you do, who it's for, how often you meet"></textarea></label>
-      <label class="choice card" style="border:0"><input type="checkbox" name="approval"><span><span style="font-weight:600">Officers approve new members</span></span></label>
-      <p class="footnote">You'll be the club's first officer. Other students see it after a quick review, usually within a day.</p></div>`,
-    { action: 'Create', onSubmit: async (fd) => {
+  function editClubSheet(c) {
+    let blob = null;
+    const form = openSheet('Edit club', `<div class="stack-l">
+      <div class="row">${mono(c, 64).replace('class="', 'id="ec-logo" class="')}<label class="btn secondary small file-btn">Change logo<input type="file" accept="image/png,image/jpeg,image/webp,image/heic" class="sr" id="ec-file"></label></div>
+      <label class="field"><span>Club name</span><input class="input" name="name" value="${esc(c.name)}" maxlength="80" required></label>
+      <label class="field"><span>What’s the point?</span><input class="input" name="blurb" value="${esc(c.blurb)}" maxlength="160"></label>
+      <label class="field"><span>Interest</span><select class="input" name="interest">${INTERESTS.concat(INTERESTS.includes(c.interest) ? [] : [c.interest]).map((i) => `<option ${c.interest === i ? 'selected' : ''}>${esc(i)}</option>`).join('')}</select></label>
+      <label class="field"><span>About</span><textarea class="input" name="about" maxlength="2000">${esc(c.about)}</textarea></label>
+      <div class="field"><span>Color (when there’s no logo)</span><div class="swatches">${ACCENTS.map(([h, n]) => `<label class="swatch" style="background:${h}"><input type="radio" class="sr" name="accent" value="${h}" ${c.accent_hex === h ? 'checked' : ''}><span class="sr">${n}</span></label>`).join('')}</div></div>
+      <div class="card toggles">${toggle('approval', 'Officers approve new members', '', c.requires_approval)}</div></div>`,
+    { action: 'Save', onSubmit: async (fd) => {
       const name = (fd.get('name') || '').trim();
-      if (name.length < 2 || !(fd.get('blurb') || '').trim()) { toast('Add a name and a one-line description.', true); return false; }
-      const id = await run(() => rpc('create_club', { p_name: name, p_interest: fd.get('interest'), p_blurb: fd.get('blurb').trim(),
-        p_about: (fd.get('about') || '').trim(), p_monogram: monogramOf(name), p_accent: fd.get('accent'), p_requires_approval: fd.get('approval') === 'on' }));
-      if (!id) return false;
-      await refresh(); toast(`${name} created. It's waiting for review.`); location.hash = `#/club/${id}`; return true;
+      const ok = await run(async () => {
+        await rpc('update_club', { p_club: c.id, p_name: name, p_interest: fd.get('interest'), p_blurb: (fd.get('blurb') || '').trim(), p_about: (fd.get('about') || '').trim(),
+          p_monogram: monogramOf(name), p_accent: fd.get('accent') || c.accent_hex, p_requires_approval: fd.get('approval') === 'on' });
+        if (blob) await uploadLogo(c.id, blob);
+        return true;
+      });
+      if (ok) { await refresh(); toast('Club updated'); } return !!ok;
     } });
-    form.name.addEventListener('input', () => { $('#sc-mono').textContent = monogramOf(form.name.value); });
+    form.querySelector('#ec-file').addEventListener('change', async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      blob = await run(() => squareImage(f)); if (!blob) return;
+      $('#ec-logo').outerHTML = `<img id="ec-logo" class="logo" src="${URL.createObjectURL(blob)}" alt="New logo" width="64" height="64">`;
+    });
+  }
+  function inviteSheet(c, position) {
+    openSheet('Invite an officer', `<div class="stack-l">
+      <label class="field"><span>Position</span><input class="input" name="position" value="${esc(position)}" maxlength="40" placeholder="e.g. Social media chair" ${position ? 'readonly' : ''}></label>
+      <label class="field"><span>Their school email</span><input class="input" name="email" type="email" inputmode="email" autocapitalize="off" spellcheck="false" required></label>
+      <p class="footnote">They’ll see the invite in their inbox the next time they open Vnua-connect (or when they first sign up with that email).</p></div>`,
+    { action: 'Invite', onSubmit: async (fd) => {
+      const email = (fd.get('email') || '').trim().toLowerCase(), pos = (fd.get('position') || '').trim();
+      if (pos.length < 2) { toast('Name the position.', true); return false; }
+      if (!campusAllows(email)) { toast(`Use their ${CFG.campus.name} email.`, true); return false; }
+      const ok = await run(() => rpc('invite_officer', { p_club: c.id, p_email: email, p_position: pos }).then(() => true));
+      if (ok) { await refresh(); toast(`Invite sent to ${email}`); } return !!ok;
+    } });
+  }
+  function officerInfoSheet(c) {
+    const me = c.officers.find((o) => o.user_id === S.user.id);
+    openSheet('Contact me about', `<div class="stack-l"><label class="field"><span>What should students reach out to you about?</span>
+      <input class="input" name="ask" value="${esc(me?.ask_about || '')}" maxlength="140" placeholder="e.g. joining, dues, the spring trip"></label>
+      <p class="footnote">Shows under your name on the club page with the contact details you share in your profile.</p></div>`,
+    { action: 'Save', onSubmit: async (fd) => {
+      const ok = await run(() => rpc('update_officer_info', { p_club: c.id, p_ask_about: (fd.get('ask') || '').trim() }).then(() => true));
+      if (ok) { await refresh(); toast('Saved'); } return !!ok;
+    } });
+  }
+  function announceSheet(c) {
+    openSheet('Announcement', `<div class="stack-l">
+      <label class="field"><span>Title</span><input class="input" name="title" maxlength="100" placeholder="e.g. Room change this Thursday" required></label>
+      <label class="field"><span>Message</span><textarea class="input" name="body" maxlength="500"></textarea></label>
+      <p class="footnote">Goes to members’ inboxes, except anyone who turned this club’s notifications off. It’s one-way, not a group chat.</p></div>`,
+    { action: 'Send', onSubmit: async (fd) => {
+      const n = await run(() => rpc('send_announcement', { p_club: c.id, p_title: (fd.get('title') || '').trim(), p_body: (fd.get('body') || '').trim() }));
+      if (n === undefined) return false;
+      await run(loadInbox); toast(`Sent to ${plural(n, 'person', 'people')}`); return true;
+    } });
   }
   function newEventSheet(c) {
-    const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(18, 0, 0, 0);
+    const t = new Date(); t.setDate(t.getDate() + 7); t.setHours(18, 0, 0, 0);
     const local = (d) => new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     const others = S.clubs.filter((x) => x.id !== c.id && isOfficer(x.id));
     const rid = uuid();
@@ -543,13 +1109,16 @@
       <label class="field"><span>Length</span><select class="input" name="duration">${[30, 45, 60, 90, 120, 180, 240].map((m) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>${m < 60 ? m + ' min' : m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : m / 60 + ' hr'}</option>`).join('')}</select></label>
       <label class="field"><span>Where</span><input class="input" name="location" maxlength="140"></label>
       <label class="field"><span>Details</span><textarea class="input" name="details" maxlength="2000" placeholder="What to expect, what to bring"></textarea></label>
+      <div class="field"><span>Remind people</span><div class="chip-wrap">${REMINDERS.map(([m, l]) => `<label class="chip-check"><input type="checkbox" name="rem" value="${m}" ${[1440, 120].includes(m) ? 'checked' : ''}><span>${l} before</span></label>`).join('')}</div>
+        <span class="footnote">Goes to everyone who RSVPs, plus members who want everything. Afterwards, people who checked in get asked for a rating.</span></div>
       ${others.length ? `<div class="stack"><div class="section-header">Co-host with</div><div class="card" style="padding-top:0;padding-bottom:0">${others.map((o) => `<label class="choice"><input type="checkbox" name="cohost" value="${o.id}"><span>${esc(o.name)}</span></label>`).join('')}</div>
         <p class="footnote">Joint events show up for both clubs. Each person is counted once.</p></div>` : ''}</div>`,
     { action: 'Post', onSubmit: async (fd) => {
       const title = (fd.get('title') || '').trim(); if (title.length < 2) { toast('Give the event a title.', true); return false; }
       const start = new Date(fd.get('start')); if (isNaN(start)) { toast('Pick a start time.', true); return false; }
       const id = await run(() => rpc('create_event', { p_hosts: [c.id, ...fd.getAll('cohost')], p_title: title, p_starts_at: start.toISOString(),
-        p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(), p_details: (fd.get('details') || '').trim(), p_request: rid }));
+        p_duration: Number(fd.get('duration')), p_location: (fd.get('location') || '').trim(), p_details: (fd.get('details') || '').trim(), p_request: rid,
+        p_reminders: fd.getAll('rem').map(Number) }));
       if (!id) return false;
       await refresh(); toast('Event posted'); return true;
     } });
@@ -557,7 +1126,7 @@
   function correctSheet(recordId, name, eventId) {
     openSheet('Correct attendance', `<div class="stack-l"><p>Remove <strong>${esc(name)}</strong> from attendance?</p>
       <label class="field"><span>Reason (required)</span><textarea class="input" name="reason" maxlength="300" placeholder="e.g. Scanned the wrong person" required></textarea></label>
-      <p class="footnote">The original record is kept with your reason so the club's history stays honest.</p></div>`,
+      <p class="footnote">The original record is kept with your reason so the club’s history stays honest.</p></div>`,
     { action: 'Remove', onSubmit: async (fd) => {
       const reason = (fd.get('reason') || '').trim(); if (!reason) { toast('A reason is required.', true); return false; }
       const ok = await run(() => rpc('correct_attendance', { p_record: recordId, p_reason: reason, p_request: uuid() }).then(() => true));
@@ -571,6 +1140,7 @@
     const a = Object.assign(document.createElement('a'), { href: url, download: name });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+  const fileSafe = (s) => String(s || 'export').slice(0, 30).replace(/[^\w]+/g, '-');
   function icsFor(e) {
     const d = (x) => x.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
     const t = (s) => String(s || '').replace(/[\\,;]/g, (m) => '\\' + m).replace(/\n/g, '\\n');
@@ -594,7 +1164,29 @@
     switch (a) {
       case 'sheet-close': closeSheet(); break;
       case 'sheet-close-bg': if (ev.target === el) closeSheet(); break;
-      case 'signin-reset': S.signin.sent = false; render(); break;
+      case 'signin-reset': S.signin = blankSignin(); render(); break;
+      case 'signin-resend': sendCode(); break;
+      // onboarding
+      case 'ob-next': obNext(); break;
+      case 'ob-back': S.ob.step--; render(); break;
+      case 'ob-year': S.ob.year = d.v; render(); break;
+      case 'ob-interest': {
+        const i = S.ob.interests.indexOf(d.v);
+        if (i >= 0) S.ob.interests.splice(i, 1); else if (S.ob.interests.length < 3) S.ob.interests.push(d.v); else return toast('Up to 3. Unpick one first.', true);
+        render(); break; }
+      case 'ob-finish': {
+        const interests = S.ob.interests; S.ob = null;
+        await run(loadAll);
+        if (d.v === 'create') { newClub(); location.hash = '#/new-club'; }
+        else { S.interest = null; location.hash = '#/discover'; if (d.v === 'join' && !S.clubs.some((x) => interests.includes(x.interest))) toast('No clubs match yet. Browse them all, or start one.'); }
+        render(); break; }
+      // start a club
+      case 'nc-next': ncNext(); break;
+      case 'nc-back': S.nc.step--; render(); break;
+      case 'nc-accent': S.nc.accent = d.v; render(); break;
+      case 'nc-clear-logo': URL.revokeObjectURL(S.nc.logoPreview); S.nc.logoBlob = null; S.nc.logoPreview = ''; render(); break;
+      case 'nc-add-extra': S.nc.extra.push({ title: '', email: '' }); render(); break;
+      case 'nc-del-extra': S.nc.extra.splice(Number(d.v), 1); render(); break;
       case 'interest': S.interest = d.v || null; render(); break;
       case 'ev-scope': S.evScope = d.v; render(); break;
       case 'join': joinSheet(c); break;
@@ -604,14 +1196,26 @@
         const ok = await run(() => rpc('review_join_request', { p_club: d.club, p_user: d.user, p_approve: d.approve === '1' }).then(() => true));
         if (ok) { toast(d.approve === '1' ? 'Approved' : 'Request declined'); after.club(d.club); } break; }
       case 'club-menu': clubMenu(c); break;
+      case 'edit-club': closeSheet(); editClubSheet(c); break;
+      case 'officer-info': closeSheet(); officerInfoSheet(c); break;
+      case 'step-down': closeSheet(); confirmSheet(`Step down from ${c.name}?`, 'You’ll stay a member. Your position opens up for someone else.', 'Step down', async () => {
+        await rpc('remove_officer', { p_club: c.id, p_user: S.user.id }); await refresh(); toast('You stepped down'); return true; }); break;
+      case 'invite': inviteSheet(c, d.v); break;
+      case 'revoke-invite': if (await run(() => rpc('revoke_invite', { p_invite: d.id }).then(() => true))) { await refresh(); toast('Invite cancelled'); } break;
+      case 'invite-answer': {
+        const inv = S.invites.find((i) => i.id === d.id), yes = d.v === '1';
+        const ok = await run(() => rpc('respond_invite', { p_invite: d.id, p_accept: yes }).then(() => true));
+        if (ok) { await refresh(); toast(yes ? `You’re now ${inv?.position || 'an officer'}` : 'Invite declined'); if (yes && inv) location.hash = `#/club/${inv.club_id}`; }
+        break; }
+      case 'announce': announceSheet(c); break;
       case 'share': {
         const url = `${HERE}#/club/${c.id}`;
         if (navigator.share) navigator.share({ title: c.name, text: `Check out ${c.name} on Vnua-connect`, url }).catch(() => {});
-        else { await navigator.clipboard?.writeText(url); toast('Link copied'); }
+        else copy(url, 'Link');
         break; }
-      case 'report': reportSheet(d.type, d.id, d.name); break;
-      case 'block': confirmSheet(`Block ${c.name}?`, "You won't see this club or its events. You can undo this in Profile.", 'Block', async () => {
-        await rpc('block_club', { p_club: c.id, p_blocked: true }); S.blocked.add(c.id); toast(`You won't see ${c.name} anymore`); location.hash = '#/discover'; return true; }); break;
+      case 'report': closeSheet(); reportSheet(d.type, d.id, d.name); break;
+      case 'block': confirmSheet(`Block ${c.name}?`, 'You won’t see this club or its events. You can undo this in Profile.', 'Block', async () => {
+        await rpc('block_club', { p_club: c.id, p_blocked: true }); S.blocked.add(c.id); toast(`You won’t see ${c.name} anymore`); location.hash = '#/discover'; return true; }); break;
       case 'unblock': if (await run(() => rpc('block_club', { p_club: d.club, p_blocked: false }).then(() => true))) { S.blocked.delete(d.club); render(); } break;
       case 'rsvp': {
         const going = !S.rsvps.has(d.id);
@@ -619,28 +1223,82 @@
         const ok = await run(() => rpc('set_rsvp', { p_event: d.id, p_going: going, p_request: uuid() }).then(() => true));
         if (!ok) { going ? S.rsvps.delete(d.id) : S.rsvps.add(d.id); render(); }
         break; }
-      case 'ics': { const e = event(d.id); download(`${e.title.slice(0, 40)}.ics`, 'text/calendar', icsFor(e)); break; }
-      case 'cancel-event': confirmSheet('Cancel this event?', 'Members will see it as cancelled. RSVPs and check-ins are kept.', 'Cancel event', async () => {
+      case 'rate': {
+        const v = Number(d.v);
+        el.parentElement.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < v));
+        const ok = await run(() => rpc('rate_event', { p_event: d.event, p_stars: v }).then(() => true));
+        if (ok) { toast('Thanks. Your rating is anonymous.'); await run(loadInbox); if (route().name === 'inbox') render(); }
+        break; }
+      case 'nudge': {
+        const users = d.users.split(',');
+        const n = await run(() => rpc('nudge_members', { p_club: d.club, p_users: users }));
+        if (n !== undefined) { toast(n ? `Sent to ${plural(n, 'member')}` : 'They were already checked in with this month'); after.dash(d.club); }
+        break; }
+      case 'nudge-answer': {
+        const n = S.notifs.find((x) => x.id === d.id), name = club(n?.club_id)?.name || 'the club';
+        const go = async () => {
+          await rpc('respond_nudge', { p_notification: d.id, p_choice: d.v });
+          await refresh(); toast(d.v === 'leave' ? `You left ${name}` : d.v === 'busy' ? 'Got it. You’re still in, no pressure.' : 'Great, see you soon'); return true;
+        };
+        if (d.v === 'leave') confirmSheet(`Leave ${name}?`, 'You can always join again later.', 'Leave club', go); else run(go);
+        break; }
+      case 'dash-tab': dash.tab = d.v; if (dash.data) $('#dash-body').innerHTML = dashBody(dash.club); break;
+      case 'dash-csv': if (dash.data) download(`members-${fileSafe(club(d.club)?.name)}.csv`, 'text/csv', membersCsv(dash.data)); break;
+      case 'copy-emails': {
+        if (!dash.data) break;
+        const list = d.v === 'supporters' ? supportersOf(dash.data.members) : dash.data.members;
+        if (!list.length) { toast('No one to copy yet.', true); break; }
+        copy(list.map((m) => m.email).join(', '), d.v === 'supporters' ? 'Top supporters’ emails' : 'All emails'); break; }
+      case 'recog-mail': {
+        if (!dash.data) break;
+        const cl = club(d.club), sup = supportersOf(dash.data.members), members = dash.data.members.filter((m) => !m.is_officer);
+        const eboard = dash.data.members.filter((m) => m.is_officer).map((m) => `${m.name} (${m.title || 'Officer'})`).join(', ');
+        const body = `Hello,\n\nWe'd like to request official recognition for ${cl.name}.\n\n${cl.blurb}\n\nWe have ${members.length} members plus our e-board: ${eboard}. `
+          + `Our most active members are CC'd on this email. A full member list is attached.\n\nThank you,\n${S.user.name}\n${membership(d.club)?.officer_title || 'Officer'}, ${cl.name}`;
+        location.href = `mailto:?cc=${encodeURIComponent(sup.map((m) => m.email).join(','))}&subject=${encodeURIComponent(`Recognition request: ${cl.name}`)}&body=${encodeURIComponent(body)}`;
+        toast('Add the student activities office in To, and attach the CSV.');
+        break; }
+      case 'ics': { const e = event(d.id); download(`${fileSafe(e.title)}.ics`, 'text/calendar', icsFor(e)); break; }
+      case 'cancel-event': confirmSheet('Cancel this event?', 'Everyone who RSVP’d gets told. RSVPs and check-ins are kept.', 'Cancel event', async () => {
         await rpc('cancel_event', { p_event: d.id }); await refresh(); toast('Event cancelled'); return true; }); break;
       case 'new-event': newEventSheet(c); break;
-      case 'start-club': startClubSheet(); break;
-      case 'swatch': {
-        const form = $('#sheet-form'); form.accent.value = d.v; $('#sc-mono').style.background = d.v;
-        form.querySelectorAll('.swatch').forEach((s) => s.setAttribute('aria-pressed', s === el)); break; }
       case 'ci-mode': ci.mode = d.v; render(); break;
       case 'ci-member': await ciCheckIn(d.event, { p_member: d.user }); $('#lookup')?.dispatchEvent(new Event('input')); break;
       case 'correct': correctSheet(d.id, d.name, d.event); break;
-      case 'csv': { const e = event(d.id); download(`attendance-${(e?.title || 'event').slice(0, 30).replace(/[^\w]+/g, '-')}.csv`, 'text/csv', csvFor(ci.records)); break; }
+      case 'csv': { const e = event(d.id); download(`attendance-${fileSafe(e?.title)}.csv`, 'text/csv', csvFor(ci.records)); break; }
+      case 'edit-profile': editProfileSheet(); break;
+      case 'go-visible': if (await run(() => saveProfile({ discoverable: true }).then(() => true))) render(); break;
       case 'signout': await sb.auth.signOut(); break;
-      case 'delete-account': confirmSheet('Delete your account?', "This removes your profile, memberships and RSVPs. It can't be undone.", 'Delete account', async () => {
+      case 'delete-account': confirmSheet('Delete your account?', 'This removes your profile, memberships and RSVPs. It can’t be undone.', 'Delete account', async () => {
         await rpc('delete_account'); await sb.auth.signOut({ scope: 'local' }); return true; }); break;
     }
   });
+  document.addEventListener('input', (ev) => {
+    const el = ev.target, d = el.dataset;
+    if (d.ob && S.ob) S.ob[d.ob] = el.type === 'checkbox' ? el.checked : el.value;
+    if (d.nc && S.nc) {
+      S.nc[d.nc] = el.type === 'checkbox' ? el.checked : el.value;
+      if (d.nc === 'position') render();
+    }
+    if (d.ncEmail && S.nc) S.nc.emails[d.ncEmail] = el.value;
+    if (d.ncExtra !== undefined && S.nc) S.nc.extra[Number(d.ncExtra)][d.k] = el.value;
+  });
   document.addEventListener('change', async (ev) => {
     const el = ev.target;
-    if (el.dataset.change === 'contact') {
-      const ok = await run(() => rpc('update_contact', { p_club: el.dataset.club, p_contact: el.value }).then(() => true));
-      if (ok) { S.memberships[el.dataset.club].contact = el.value; toast('Saved'); }
+    if (el.dataset.ob && el.type === 'checkbox' && S.ob) S.ob[el.dataset.ob] = el.checked;
+    if (el.dataset.nc && S.nc && (el.type === 'checkbox' || el.tagName === 'SELECT')) { S.nc[el.dataset.nc] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.nc === 'position') render(); }
+    if (el.dataset.file === 'nc-logo' && el.files[0]) {
+      const blob = await run(() => squareImage(el.files[0]));
+      if (blob && S.nc) { if (S.nc.logoPreview) URL.revokeObjectURL(S.nc.logoPreview); S.nc.logoBlob = blob; S.nc.logoPreview = URL.createObjectURL(blob); render(); }
+    }
+    if (el.dataset.change === 'notify') {
+      const ok = await run(() => rpc('update_notify', { p_club: el.dataset.club, p_notify: el.value }).then(() => true));
+      if (ok) { S.memberships[el.dataset.club].notify = el.value; toast('Saved'); }
+    }
+    if (el.dataset.privacy) {
+      const key = el.dataset.privacy, val = el.checked;
+      const ok = await run(() => saveProfile({ [key]: val }).then(() => true));
+      if (ok) toast('Saved'); else el.checked = !val;
     }
   });
 
@@ -649,7 +1307,8 @@
     const profile = await run(() => loadProfile(session.user.id));
     if (!profile) { S.booting = false; render(); return; }
     S.user = profile;
-    await run(loadAll);
+    await run(loadAll); lastLoad = Date.now();
+    if (!profile.onboarded_at) startOnboarding();
     S.booting = false; render();
   }
   async function boot() {
@@ -657,13 +1316,13 @@
     const err = params.get('error_description') || new URLSearchParams(location.hash.slice(1)).get('error_description');
     const { data: { session } } = await sb.auth.getSession();       // also finishes a sign-in link (?code=…)
     if (params.has('code') || params.has('error') || location.hash.includes('error=')) history.replaceState(null, '', HERE + (location.hash.startsWith('#/') ? location.hash : ''));
-    if (err) toast(/code verifier|both auth code/i.test(err) ? 'Open the sign-in link in the same browser you requested it from.' : err.replace(/\+/g, ' '), true);
-    if (!session && params.has('code') && !err) toast('That link was opened in a different browser. Request a new one here, or enter the code.', true);
+    if (err) toast(/code verifier|both auth code/i.test(err) ? 'Open the sign-in link in the same browser you requested it from, or use the code.' : err.replace(/\+/g, ' '), true);
+    if (!session && params.has('code') && !err) toast('That link was opened in a different browser. Enter the code from the email instead.', true);
     if (session) await signedIn(session); else { S.booting = false; render(); }
     sb.auth.onAuthStateChange((evt, s) => {
       if (evt === 'SIGNED_IN' && s && !S.user) { S.booting = true; render(); signedIn(s); }
-      if (evt === 'SIGNED_OUT') { Object.assign(S, { user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set() });
-        S.signin = { name: '', email: '', sent: false, busy: false }; location.hash = ''; render(); }
+      if (evt === 'SIGNED_OUT') { Object.assign(S, { user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(), notifs: [], invites: [], ob: null, nc: null });
+        S.signin = blankSignin(); location.hash = ''; render(); }
     });
   }
   window.addEventListener('pageshow', (e) => { if (e.persisted && S.user) refresh(); });
