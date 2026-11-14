@@ -213,7 +213,10 @@
     : `<div class="mono" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;background:${esc(c.accent_hex)}">${esc(c.monogram)}</div>`;
   const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const hue = (s) => [...String(s)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
-  const avatar = (name, size = 44) => `<div class="avatar" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;--h:${hue(name)}">${esc(initials(name))}</div>`;
+  const safePhoto = (url) => /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/avatars\//.test(url || '') ? url : '';
+  const avatar = (name, size = 44, url = '') => safePhoto(url)
+    ? `<img class="avatar photo" src="${esc(url)}" alt="" width="${size}" height="${size}" loading="lazy" style="width:${size}px;height:${size}px">`
+    : `<div class="avatar" aria-hidden="true" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .38)}px;--h:${hue(name)}">${esc(initials(name))}</div>`;
   const badge = (text, tone = '') => `<span class="badge ${tone}">${esc(text)}</span>`;
   function clubStatusBadge(c) {
     if (c.is_published) return '';
@@ -469,6 +472,7 @@
         <p class="footnote">Takes about a minute. You can change all of it later in Profile.</p>
         <div class="ob-nav"><button class="btn primary" data-action="ob-next">Let’s go</button></div></div>`;
     else if (st === 1) body = `${dots}<h1 class="ob-title">About you</h1><div class="stack-l">
+        <div class="row">${photoPicker(S.user, 72, 'ob-avatar')}<p class="footnote spacer">Add a photo so people recognize you at events. Optional, and only students signed in here can see it.</p></div>
         <label class="field"><span>Name</span><input class="input" data-ob="name" value="${esc(o.name)}" autocomplete="name" maxlength="80" placeholder="First and last name"></label>
         <label class="field"><span>Major</span><input class="input" data-ob="major" value="${esc(o.major)}" maxlength="80" placeholder="e.g. Computer Science, Undeclared"></label>
         <div class="field"><span>Year</span><div class="chip-wrap">${YEARS.map((y) => `<button type="button" class="chip" data-action="ob-year" data-v="${esc(y)}" aria-pressed="${o.year === y}">${esc(y)}</button>`).join('')}</div></div>
@@ -572,7 +576,7 @@
         <button class="link-btn danger" data-action="leave" data-club="${c.id}" style="justify-self:start">${m.status === 'pending' ? 'Cancel request' : 'Leave club'}</button></div>`
       : invite ? '' : `<div class="card stack"><button class="btn primary" data-action="join" data-club="${c.id}">${c.requires_approval ? 'Request to join' : 'Join club'}</button>
         ${c.requires_approval ? '<p class="footnote">Officers approve new members for this club.</p>' : ''}</div>`;
-    const officers = c.officers.map((o) => `<div class="person">${avatar(o.name)}<div class="spacer">
+    const officers = c.officers.map((o) => `<div class="person">${avatar(o.name, 44, o.avatar_url)}<div class="spacer">
         <div style="font-weight:700">${esc(o.name)}</div><div class="footnote" style="color:var(--accent);font-weight:600">${esc(o.title)}</div>
         ${o.major || o.class_year ? `<div class="footnote">${esc([o.major, o.class_year].filter(Boolean).join(' · '))}</div>` : ''}
         ${o.ask_about ? `<div class="ask">Contact me about ${esc(o.ask_about.replace(/^about\s+/i, ''))}</div>` : ''}
@@ -810,7 +814,7 @@
       recent: (m) => m.attended_30 > 0, new: (m) => m.first_seen && now - new Date(m.first_seen) < 30 * DAY, quiet: (m) => m.fading };
     const filt = dash.filter.startsWith('help:') ? (m) => (m.help_with || []).includes(dash.filter.slice(5)) : F[dash.filter] || F.all;
     const shown = ranked.filter(filt);
-    const memberRow = (m) => `<div class="list-row member">${m.is_officer ? avatar(m.name, 36) : `<span class="rank">${m.rank}</span>`}
+    const memberRow = (m) => `<div class="list-row member">${m.is_officer ? avatar(m.name, 36, m.avatar_url) : `<span class="rank">${m.rank}</span>`}
       <div class="spacer"><div style="font-weight:600">${esc(m.name)}${m.is_officer ? ` <span class="footnote">· ${esc(m.title || 'Officer')}</span>` : ''}</div>
         <div class="footnote">${m.eligible ? `${m.attended} of ${plural(m.eligible, 'event')} since joining` : plural(m.attended, 'event')}${m.last_seen ? ` · last seen ${fmt.short(new Date(m.last_seen))}` : ''}</div>
         <div class="badges">${supporterIds.has(m.user_id) && m.attended > 0 ? badge('Top supporter', 'success') : ''}${!m.is_officer && m.recognition_ok ? badge('Counts for recognition') : ''}${m.involvement === 'organize' && !m.is_officer ? badge('Wants to help organize', 'accent') : ''}
@@ -1120,7 +1124,7 @@
     if (!S.user.discoverable) return;
     const rows = await run(() => rpc('people_to_meet'));
     const box = $('#people'); if (!rows || !box) return;
-    box.innerHTML = rows.map((p) => `<div class="card person-card"><div class="row" style="align-items:flex-start">${avatar(p.name, 52)}
+    box.innerHTML = rows.map((p) => `<div class="card person-card"><div class="row" style="align-items:flex-start">${avatar(p.name, 52, p.avatar_url)}
         <div class="spacer"><div style="font-weight:700;font-size:17px">${esc(p.name)}${p.pronouns ? ` <span class="footnote">${esc(p.pronouns)}</span>` : ''}</div>
           <div class="footnote">${esc([p.major, p.class_year].filter(Boolean).join(' · '))}</div></div>
         <button class="icon-btn small-icon" data-action="report" data-type="profile" data-id="${p.user_id}" data-name="${esc(p.name)}" aria-label="Report ${esc(p.name)}">⚑</button></div>
@@ -1268,7 +1272,7 @@
     const u = S.user, active = Object.values(S.memberships).filter((m) => m.status === 'active').length;
     const blocked = S.clubs.filter((c) => S.blocked.has(c.id));
     return `${titleBar('Profile')}<div class="stack-l">
-      <div class="card stack"><div class="row" style="align-items:flex-start">${avatar(u.name, 64)}<div class="spacer">
+      <div class="card stack"><div class="row" style="align-items:flex-start">${photoPicker(u, 72, 'avatar')}<div class="spacer">
         <h2 style="font-size:22px;font-weight:800">${esc(u.name)}${u.pronouns ? ` <span class="footnote" style="font-weight:400">${esc(u.pronouns)}</span>` : ''}</h2>
         <p class="muted" style="font-size:15px">${esc([u.major, u.class_year].filter(Boolean).join(' · ') || CFG.campus.name)}</p>
         <p class="footnote">${esc(u.email)}</p></div></div>
@@ -1276,7 +1280,8 @@
         ${u.interests?.length ? `<div class="badges">${u.interests.map((i) => badge(i, 'accent')).join('')}</div>` : ''}
         ${u.help_with?.length ? `<p class="footnote">Can help with: ${esc(u.help_with.join(', '))}</p>` : ''}${u.looking_for?.length ? `<p class="footnote">Looking for: ${esc(u.looking_for.join(', '))}</p>` : ''}
         ${contactButtons({ email: u.share_email ? u.email : '', phone: u.share_phone ? u.phone : '', linkedin: u.share_linkedin ? u.linkedin : '' })}
-        <button class="btn secondary" data-action="edit-profile">Edit profile</button></div>
+        <button class="btn secondary" data-action="edit-profile">Edit profile</button>
+        ${u.avatar_url ? '<button class="link-btn danger" data-action="remove-avatar" style="justify-self:start">Remove photo</button>' : ''}</div>
       ${u.is_platform_admin ? `<a class="card row founder-entry" href="#/founder"><div class="spacer"><strong>Founder dashboard</strong><div class="footnote">Every club and student, and whether the app is working</div></div><span class="chev">›</span></a>` : ''}
       <div class="stack"><div class="section-header">Appearance</div><div class="segmented" role="group" aria-label="Appearance">${[['auto', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
         `<button data-action="theme" data-v="${v}" aria-pressed="${getTheme() === v}">${l}</button>`).join('')}</div>
@@ -1311,6 +1316,21 @@
     $('#inv-count').textContent = rows.length;
     $('#inv-list').innerHTML = rows.map((r) => `<div class="list-row"><div><div style="font-weight:600;font-size:15px">${esc(event(r.event_id)?.title || 'Event')}</div><div class="footnote">${esc(fmt.day(new Date(r.recorded_at)))}</div></div></div>`).join('');
   };
+  /** Your photo (or initials) with a tap target to add/change it. Optional; shown only to signed-in students. */
+  const photoPicker = (u, size, key) => `<label class="photo-pick" title="${u.avatar_url ? 'Change photo' : 'Add a photo'}">${avatar(u.name, size, u.avatar_url)}
+    <span class="photo-badge">${u.avatar_url ? 'Change' : 'Add photo'}</span>
+    <input type="file" accept="image/png,image/jpeg,image/webp,image/heic" data-file="${key}" class="sr"></label>`;
+  async function uploadAvatar(file) {
+    const blob = await squareImage(file, 480);                       // square crop, re-encoded: strips location data
+    const old = S.user.avatar_url;
+    const path = `${S.user.id}/${Date.now()}.jpg`;
+    await q(sb.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: false }));
+    const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+    await rpc('set_avatar', { p_url: url });
+    S.user.avatar_url = url;
+    const oldPath = old && old.split('/avatars/')[1];
+    if (oldPath) sb.storage.from('avatars').remove([decodeURIComponent(oldPath)]).catch(() => {});
+  }
   /** Save profile changes (merges into the current profile). */
   async function saveProfile(patch) {
     const u = { ...S.user, ...patch };
@@ -1749,6 +1769,13 @@
       case 'cancel-add-account': S.adding = false; render(); break;
       case 'switch-account': switchAccount(d.id); break;
       case 'set-password': passwordSheet(); break;
+      case 'remove-avatar': {
+        const old = S.user.avatar_url;
+        if (await run(() => rpc('set_avatar', { p_url: null }).then(() => true))) {
+          S.user.avatar_url = null; toast('Photo removed'); render();
+          const oldPath = old && old.split('/avatars/')[1]; if (oldPath) sb.storage.from('avatars').remove([decodeURIComponent(oldPath)]).catch(() => {});
+        }
+        break; }
       case 'theme': { try { localStorage.setItem(THEME_KEY, d.v); } catch {} applyTheme(d.v);
         el.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === el)); break; }
       case 'founder-lock': await run(() => rpc('founder_lock')); fd.data = null; toast('Locked'); after.founder(); break;
@@ -1784,6 +1811,12 @@
     const el = ev.target;
     if (el.dataset.ob && el.type === 'checkbox' && S.ob) S.ob[el.dataset.ob] = el.checked;
     if (el.dataset.nc && S.nc && (el.type === 'checkbox' || el.tagName === 'SELECT')) { S.nc[el.dataset.nc] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.nc === 'position') render(); }
+    if ((el.dataset.file === 'avatar' || el.dataset.file === 'ob-avatar') && el.files[0]) {
+      toast('Uploading photo…');
+      const ok = await run(() => uploadAvatar(el.files[0]).then(() => true));
+      if (ok) { toast('Photo saved'); render(); }
+      el.value = '';
+    }
     if (el.dataset.file === 'nc-logo' && el.files[0]) {
       const blob = await run(() => squareImage(el.files[0]));
       if (blob && S.nc) { if (S.nc.logoPreview) URL.revokeObjectURL(S.nc.logoPreview); S.nc.logoBlob = blob; S.nc.logoPreview = URL.createObjectURL(blob); render(); }

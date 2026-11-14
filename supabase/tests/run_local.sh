@@ -20,3 +20,4 @@ for m in migrations/*.sql; do "${PSQL[@]}" -f "$m"; done
 "${PSQL[@]}" -f tests/v4_test.sql
 "${PSQL[@]}" -f tests/v5_test.sql
 "${PSQL[@]}" -f tests/v6_test.sql
+"${PSQL[@]}" -f tests/v7_test.sql
