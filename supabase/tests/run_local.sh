@@ -17,3 +17,4 @@ for m in migrations/*.sql; do "${PSQL[@]}" -f "$m"; done
 "${PSQL[@]}" -f tests/security_test.sql
 "${PSQL[@]}" -f tests/v2_test.sql
 "${PSQL[@]}" -f tests/v3_test.sql
+"${PSQL[@]}" -f tests/v4_test.sql

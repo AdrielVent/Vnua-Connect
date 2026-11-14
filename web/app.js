@@ -10,7 +10,7 @@
   const HERE = location.origin + location.pathname;          // email link comes back here
 
   // ───────────── State ─────────────
-  const blankSignin = () => ({ email: '', sent: false, busy: false, sentAt: 0, show: false });
+  const blankSignin = () => ({ email: '', sent: false, busy: false, sentAt: 0, show: false, mode: 'email' });
   const S = {
     booting: true, user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(),
     notifs: [], invites: [], q: '', interest: null, evScope: 'all', signin: blankSignin(), ob: null, nc: null,
@@ -173,6 +173,7 @@
     cleanup.forEach((f) => f()); cleanup = [];
     const app = $('#app');
     if (S.booting) { app.innerHTML = '<div class="boot"><div class="spinner" role="status" aria-label="Loading"></div></div>'; return; }
+    if (S.adding) { app.innerHTML = signInView(); bindSignIn(); return; }
     if (!S.user) {
       const pr = route();
       if (!S.signin.show && (pr.name === 'club' || pr.name === 'event') && pr.id) { app.innerHTML = previewShell(); loadPreview(pr); return; }
@@ -288,7 +289,7 @@
           <div class="badges">${badge(c.interest)}${badge(recogLabel[c.recognition], c.recognition === 'recognized' ? 'success' : '')}${badge(plural(c.members, 'member'))}</div></div>
         <div class="card stack"><button class="btn primary" data-action="preview-go" data-v="join" data-id="${c.id}" data-name="${esc(c.name)}">Join ${esc(c.name)}</button>
           <button class="btn secondary" data-action="preview-go" data-v="help" data-id="${c.id}" data-name="${esc(c.name)}">Help build this group</button>
-          <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email. No password.</p></div>
+          <p class="footnote">You’ll sign in with your ${esc(c.campus || CFG.campus.name)} email.</p></div>
         ${ne ? `<div class="stack"><div class="section-header">Next up</div><div class="card"><div class="event-title">${esc(ne.title)}</div>
           <div class="muted" style="font-size:15px">${esc(fmt.full(new Date(ne.starts_at)))}${ne.location ? ' · ' + esc(ne.location) : ''}</div></div></div>` : ''}
         ${c.about ? `<div class="card stack"><div class="section-header">About</div><p>${esc(c.about)}</p></div>` : ''}
@@ -305,42 +306,63 @@
         ${e.details ? `<p>${esc(e.details)}</p>` : ''}
         ${e.status !== 'cancelled' ? `<div class="card stack"><button class="btn primary" data-action="preview-go" data-v="event" data-id="${e.id}" data-name="${esc(e.title)}">RSVP</button>
           ${host ? `<a class="btn secondary" href="#/club/${host.id}">About ${esc(host.name)}</a>` : ''}
-          <p class="footnote">You’ll sign in with your ${esc(CFG.campus.name)} email. No password.</p></div>` : ''}
+          <p class="footnote">You’ll sign in with your ${esc(CFG.campus.name)} email.</p></div>` : ''}
         ${signInBar}</div>`;
     }
   }
 
-  // ───────────── Sign in (6-digit code) ─────────────
+  // ───────────── Sign in ─────────────
+  // What the sign-in email contains is decided by the Supabase email template, not by this app.
+  // CFG.signInEmail must match reality: 'link' (Supabase's built-in email) or 'code' (custom SMTP + code template).
+  const EMAIL_HAS_CODE = CFG.signInEmail === 'code';
+  // An iPhone Home Screen web app keeps its own storage, separate from Safari. Email links open in Safari,
+  // so inside the installed app only a code or a password can sign you in.
+  const STANDALONE = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
   function signInView() {
     const s = S.signin;
     const wait = Math.max(0, 60 - Math.floor((Date.now() - s.sentAt) / 1000));
+    const disclaimer = `<p class="footnote">Vnua-connect is student-run and not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p>`;
     const intro = `<div class="stack"><div class="app-mark" aria-hidden="true">${icon.clubs}</div>
         <h1 class="large-title" style="margin:0">Vnua-connect</h1>
         <p class="muted">Find new student clubs at ${esc(CFG.campus.name)}, join or start one, and check in at events.</p></div>`;
     const it = peekIntent();
     const ctx = it ? `<div class="card notice-card"><strong>${it.type === 'event' ? 'RSVP to' : it.type === 'help' ? 'Help build' : 'Join'} ${esc(it.name || '')}</strong><span class="muted">Sign in first. It takes a minute, and we’ll bring you right back.</span></div>` : '';
-    const backBtn = s.show ? '<div class="topbar"><button class="back" data-action="preview-back">‹ Back</button></div>' : '';
-    if (!s.sent) return `<main class="screen no-tabs narrow">${backBtn}<div class="stack-l" style="padding-top:${backBtn ? 8 : 48}px">${ctx}${intro}
+    const topLinks = [s.show ? '<button class="back" data-action="preview-back">‹ Back</button>' : '', S.user ? '<button class="back" data-action="cancel-add-account">‹ Cancel</button>' : ''].join('');
+    const backBtn = topLinks ? `<div class="topbar">${topLinks}</div>` : '';
+    const pad = `padding-top:${backBtn ? 8 : 48}px`;
+    const adding = S.user ? '<div class="card notice-card"><strong>Add another account</strong><span class="muted">You can switch between accounts on this device from Profile.</span></div>' : '';
+    if (s.mode === 'password') return `<main class="screen no-tabs narrow">${backBtn}<div class="stack-l" style="${pad}">${adding}${ctx}${intro}
+      <form id="signin" class="stack" novalidate>
+        <label class="field"><span>School email</span><input class="input" name="email" type="email" inputmode="email" autocomplete="username"
+          autocapitalize="off" spellcheck="false" placeholder="you@pride.hofstra.edu" value="${esc(s.email)}" required></label>
+        <label class="field"><span>Password</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Signing in…' : 'Sign in'}</button>
+        <button class="link-btn" type="button" data-action="signin-mode" data-v="email" style="justify-self:start">Use an email ${EMAIL_HAS_CODE ? 'code' : 'link'} instead</button>
+      </form>
+      <p class="footnote">No password yet? Sign in with an email ${EMAIL_HAS_CODE ? 'code' : 'link'} once, then set one in Profile.</p>${disclaimer}</div></main>`;
+    if (!s.sent) return `<main class="screen no-tabs narrow">${backBtn}<div class="stack-l" style="${pad}">${adding}${ctx}${intro}
+      ${STANDALONE && !EMAIL_HAS_CODE ? `<div class="card notice warning">You’re in the Home Screen app. Email links open in Safari, not here, so sign in with a password in this app.</div>` : ''}
       <form id="signin" class="stack" novalidate>
         <label class="field"><span>School email</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email"
           autocapitalize="off" spellcheck="false" placeholder="you@pride.hofstra.edu" value="${esc(s.email)}" required></label>
-        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Sending…' : 'Send me a code'}</button>
+        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Sending…' : EMAIL_HAS_CODE ? 'Email me a code' : 'Email me a sign-in link'}</button>
+        <button class="link-btn" type="button" data-action="signin-mode" data-v="password" style="justify-self:start">Sign in with a password</button>
       </form>
-      <p class="footnote">No password. We email you a 6-digit code, and you stay signed in on this device until you sign out.
-        Vnua-connect is student-run and not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p></div></main>`;
-    return `<main class="screen no-tabs narrow"><div class="stack-l" style="padding-top:48px">
+      <p class="footnote">${EMAIL_HAS_CODE ? 'We email you a 6-digit code.' : 'We email a sign-in link to your school address.'} You stay signed in on this device until you sign out.</p>${disclaimer}</div></main>`;
+    return `<main class="screen no-tabs narrow">${backBtn}<div class="stack-l" style="${pad}">
       <div class="stack"><h1 class="large-title" style="margin:0">Check your email</h1>
-        <p class="muted">We sent a code to <strong>${esc(s.email)}</strong>. It can take a minute, and it might land in junk.</p></div>
+        <p class="muted">We sent ${EMAIL_HAS_CODE ? 'a 6-digit code' : 'a sign-in link'} to <strong>${esc(s.email)}</strong>. It can take a minute, and it might land in junk.</p></div>
+      ${EMAIL_HAS_CODE ? '' : `<div class="card stack"><p>Open the email <strong>on this device</strong> and tap the link. It signs you in here in ${STANDALONE ? 'Safari (not this Home Screen app)' : 'this browser'}.</p>
+        <p class="footnote">The link only works in the browser you asked for it from. It expires after 10 minutes.</p></div>`}
       <form id="signin" class="stack" novalidate>
-        <label class="field"><span>6-digit code</span><input class="input code-input" name="code" inputmode="numeric" pattern="[0-9]*"
+        ${EMAIL_HAS_CODE ? `<label class="field"><span>6-digit code</span><input class="input code-input" name="code" inputmode="numeric" pattern="[0-9]*"
           autocomplete="one-time-code" maxlength="8" placeholder="••••••" required></label>
-        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Checking…' : 'Sign in'}</button>
+        <button class="btn primary" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Checking…' : 'Sign in'}</button>` : ''}
         <div class="row" style="justify-content:space-between">
           <button class="link-btn" type="button" data-action="signin-reset">Different email</button>
-          <button class="link-btn" type="button" data-action="signin-resend" id="resend" ${wait ? 'disabled' : ''}>${wait ? `Resend in ${wait}s` : 'Resend code'}</button>
+          <button class="link-btn" type="button" data-action="signin-resend" id="resend" ${wait ? 'disabled' : ''}>${wait ? `Resend in ${wait}s` : 'Send again'}</button>
         </div>
-      </form>
-      <p class="footnote">If the email has a link instead of a code, open it in this browser. Codes expire after 10 minutes.</p></div></main>`;
+      </form>${disclaimer}</div></main>`;
   }
   const campusAllows = (email) => {
     const d = (email.split('@')[1] || '').toLowerCase();
@@ -357,28 +379,75 @@
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const s = S.signin;
+      if (s.mode === 'password') {
+        s.email = form.email.value.trim().toLowerCase();
+        if (!campusAllows(s.email)) return toast(`Use your ${CFG.campus.name} email address.`, true);
+        if (!form.password.value) return toast('Enter your password.', true);
+        s.busy = true; render();
+        const pw = form.password.value;
+        const ok = await run(() => q(sb.auth.signInWithPassword({ email: s.email, password: pw })).then(() => true));
+        if (!ok) { s.busy = false; render(); }
+        return;
+      }
       if (!s.sent) {
         s.email = form.email.value.trim().toLowerCase();
         if (!campusAllows(s.email)) return toast(`Use your ${CFG.campus.name} email address.`, true);
         return sendCode();
       }
+      if (!EMAIL_HAS_CODE) return;
       const code = form.code.value.replace(/\D/g, '');
       if (!/^\d{6,8}$/.test(code)) return toast('Enter the 6-digit code from the email.', true);
       s.busy = true; render();
       const ok = await run(() => q(sb.auth.verifyOtp({ email: s.email, token: code, type: 'email' })).then(() => true));
       if (!ok) { s.busy = false; render(); $('#signin')?.code?.focus(); }   // on success onAuthStateChange signs in
     });
-    if (S.signin.sent) {
-      const input = form.code; input.focus();
-      input.addEventListener('input', () => { if (input.value.replace(/\D/g, '').length === 6 && !S.signin.busy) form.requestSubmit(); });
+    if (S.signin.sent && S.signin.mode !== 'password') {
+      const input = form.code;
+      if (input) { input.focus(); input.addEventListener('input', () => { if (input.value.replace(/\D/g, '').length === 6 && !S.signin.busy) form.requestSubmit(); }); }
       const t = setInterval(() => {
         const b = $('#resend'); if (!b) return clearInterval(t);
         const wait = Math.max(0, 60 - Math.floor((Date.now() - S.signin.sentAt) / 1000));
-        b.disabled = wait > 0; b.textContent = wait ? `Resend in ${wait}s` : 'Resend code';
+        b.disabled = wait > 0; b.textContent = wait ? `Resend in ${wait}s` : 'Send again';
         if (!wait) clearInterval(t);
       }, 1000);
       cleanup.push(() => clearInterval(t));
     } else form.email.focus();
+  }
+
+  // ───────────── Accounts on this device ─────────────
+  // Lets one phone hold several accounts (e.g. a member and an officer) and switch with one tap.
+  // Stores each account's refresh token in this browser only — the same thing Supabase already stores for
+  // the signed-in account. Signing out of an account removes it from the list.
+  const ACCOUNTS_KEY = 'vnua-accounts';
+  const loadAccounts = () => { try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]'); } catch { return []; } };
+  const saveAccounts = (list) => { try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)); } catch {} };
+  function rememberAccount(session, name) {
+    if (!session?.refresh_token) return;
+    const list = loadAccounts().filter((a) => a.id !== session.user.id);
+    const prev = loadAccounts().find((a) => a.id === session.user.id);
+    list.unshift({ id: session.user.id, email: session.user.email, name: name || prev?.name || session.user.email, refresh_token: session.refresh_token });
+    saveAccounts(list.slice(0, 5));
+  }
+  const forgetAccount = (id) => saveAccounts(loadAccounts().filter((a) => a.id !== id));
+  async function switchAccount(id) {
+    const target = loadAccounts().find((a) => a.id === id); if (!target) return;
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) rememberAccount(session, S.user?.name);           // keep the current one usable
+    S.booting = true; render();
+    const { data, error } = await sb.auth.refreshSession({ refresh_token: target.refresh_token });
+    if (error || !data.session) {
+      forgetAccount(id);
+      toast(`${target.email} needs to sign in again.`, true);
+      if (session) await sb.auth.refreshSession({ refresh_token: loadAccounts().find((a) => a.id === session.user.id)?.refresh_token });
+      S.booting = false; render(); return;
+    }
+    resetState(); location.hash = '#/discover';
+    await signedIn(data.session);
+    toast(`Signed in as ${S.user?.name || target.email}`);
+  }
+  function resetState() {
+    Object.assign(S, { user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(), notifs: [], invites: [], ob: null, nc: null });
+    S.signin = blankSignin(); triedFetch.clear(); dash.club = null;
   }
 
   // ───────────── Onboarding ─────────────
@@ -460,6 +529,7 @@
       .concat([...new Set(S.clubs.map((c) => c.interest))].sort().map((i) => `<button class="chip" data-action="interest" data-v="${esc(i)}" aria-pressed="${S.interest === i}">${esc(i)}</button>`)).join('');
     return `${titleBar('Discover')}<div class="stack-l">
       ${myInvites().length ? `<a class="card notice-card" href="#/inbox"><strong>You’re invited to an officer team</strong><span class="muted">${esc(myInvites().map((i) => `${i.position} of ${club(i.club_id)?.name || 'a club'}`).join(' · '))}</span></a>` : ''}
+      <p class="fair-note">Every club gets the same spot here. Clubs are listed A–Z, never by size or popularity, so new and small groups show up as easily as big ones.</p>
       <label class="search"><span class="sr">Search clubs</span><input class="input" id="search" type="search" placeholder="Clubs and interests" value="${esc(S.q)}" autocomplete="off"></label>
       <div class="chips" role="group" aria-label="Interests">${chips}</div>
       <div id="discover-body" class="stack-l">${discoverBody()}</div></div>`;
@@ -471,10 +541,10 @@
     const soon = visibleEvents().filter((e) => e.status !== 'cancelled' && e.end > new Date()).slice(0, 5);
     const mine = S.user.interests || [];
     const forYou = !S.q && !S.interest ? visibleClubs().filter((c) => mine.includes(c.interest) && !membership(c.id)).slice(0, 4) : [];
-    return `${forYou.length ? `<div class="section-header">Picked for you</div><div class="stack">${forYou.map(clubRow).join('')}</div>` : ''}
+    return `${forYou.length ? `<div class="section-header">Picked for you</div><div class="list">${forYou.map(clubRow).join('')}</div>` : ''}
       ${!S.q && !S.interest && soon.length ? `<div class="section-header">Happening soon</div><div class="hscroll">${soon.map(eventCard).join('')}</div>` : ''}
       <div class="section-header">${esc(S.interest || 'All clubs')}</div>
-      <div class="stack">${list.map(clubRow).join('') || `<div class="empty"><h2>${S.clubs.length ? 'No matches' : 'No clubs yet'}</h2>
+      <div class="${list.length ? 'list' : 'stack'}">${list.map(clubRow).join('') || `<div class="empty"><h2>${S.clubs.length ? 'No matches' : 'No clubs yet'}</h2>
         <p>${S.clubs.length ? 'Try a different search.' : 'Be the first.'}</p>${S.clubs.length ? '' : '<a class="btn primary" href="#/new-club" style="max-width:240px;margin:16px auto 0">Start a club</a>'}</div>`}</div>`;
   }
   after.discover = () => {
@@ -525,8 +595,8 @@
         ${c.about || c.affiliation ? `<div class="card stack"><div class="section-header">About</div>${c.about ? `<p>${esc(c.about)}</p>` : ''}${c.affiliation ? `<p class="footnote">${esc(c.affiliation)}</p>` : ''}</div>` : ''}
         ${c.officers.length ? `<div class="stack"><div class="section-header">E-board</div><div class="card people">${officers}</div></div>` : ''}
         ${isMember(c.id) ? `<div class="stack" id="polls"></div><div class="stack" id="leaderboard"></div>` : ''}
-        <div class="stack"><div class="section-header">Upcoming</div>${upcoming.map(eventRow).join('') || '<p class="muted" style="font-size:15px">Nothing scheduled yet.</p>'}</div>
-        ${past.length ? `<div class="stack"><div class="section-header">Past events</div>${past.map(eventRow).join('')}</div>` : ''}
+        <div class="stack"><div class="section-header">Upcoming</div>${upcoming.length ? `<div class="list">${upcoming.map(eventRow).join('')}</div>` : '<p class="muted" style="font-size:15px">Nothing scheduled yet.</p>'}</div>
+        ${past.length ? `<div class="stack"><div class="section-header">Past events</div><div class="list">${past.map(eventRow).join('')}</div></div>` : ''}
       </div>`;
   }
   /** Officers see who holds each of the four core positions, open slots, and pending invites. */
@@ -743,7 +813,7 @@
     const memberRow = (m) => `<div class="list-row member">${m.is_officer ? avatar(m.name, 36) : `<span class="rank">${m.rank}</span>`}
       <div class="spacer"><div style="font-weight:600">${esc(m.name)}${m.is_officer ? ` <span class="footnote">· ${esc(m.title || 'Officer')}</span>` : ''}</div>
         <div class="footnote">${m.eligible ? `${m.attended} of ${plural(m.eligible, 'event')} since joining` : plural(m.attended, 'event')}${m.last_seen ? ` · last seen ${fmt.short(new Date(m.last_seen))}` : ''}</div>
-        <div class="badges">${supporterIds.has(m.user_id) ? badge('Top supporter', 'success') : ''}${!m.is_officer && m.recognition_ok ? badge('Counts for recognition') : ''}${m.involvement === 'organize' && !m.is_officer ? badge('Wants to help organize', 'accent') : ''}
+        <div class="badges">${supporterIds.has(m.user_id) && m.attended > 0 ? badge('Top supporter', 'success') : ''}${!m.is_officer && m.recognition_ok ? badge('Counts for recognition') : ''}${m.involvement === 'organize' && !m.is_officer ? badge('Wants to help organize', 'accent') : ''}
           ${(m.help_with || []).map((h) => badge(h)).join('')}${m.fading ? badge('Missed the last 3', 'warning') : ''}${m.busy ? badge('Busy, still in') : ''}${m.nudged_at ? badge(`Checked in with ${fmt.rel(new Date(m.nudged_at))}`) : ''}</div></div>
       ${m.email ? `<a class="icon-btn" href="mailto:${esc(m.email)}" aria-label="Email ${esc(m.name)}">${icon.mail}</a>` : ''}</div>`;
     const evRow = (e) => { const st = new Date(e.starts_at); const up = st > now;
@@ -760,7 +830,7 @@
         <p class="footnote">${plural(shown.length, 'member')} · ranked by check-ins. A member who came once can still be a real supporter, so use the filters, not just the rank.</p>
         <div class="section-header">E-board · not ranked</div><div class="card">${eboard.map(memberRow).join('')}</div>`,
       events: () => `<div class="card">${d.events.map(evRow).join('') || '<p class="footnote" style="padding:12px 0">No events yet.</p>'}</div>
-        <p class="footnote">Ratings are anonymous. Officers only see an event’s average once 3 people have rated it.</p>`,
+        <p class="footnote">Officers never see who rated. You only get an event’s average and comments once 3 people have responded. In a very small group, people can sometimes still guess.</p>`,
       tasks: () => { const open = dash.tasks.filter((t) => !t.done_at), done = dash.tasks.filter((t) => t.done_at).slice(0, 10);
         const row = (t) => `<div class="list-row task${t.done_at ? ' done' : ''}"><button class="check" data-action="task-done" data-id="${t.id}" data-v="${t.done_at ? 0 : 1}" aria-label="${t.done_at ? 'Mark not done' : 'Mark done'}" aria-pressed="${!!t.done_at}">✓</button>
           <div class="spacer"><div style="font-weight:600">${esc(t.title)}</div><div class="footnote">${esc(ownerName(id, t.owner_id))}${t.due_on ? ` · due ${fmt.short(new Date(t.due_on + 'T12:00'))}` : ''}${t.event_id && event(t.event_id) ? ` · ${esc(event(t.event_id).title)}` : ''}</div></div>
@@ -782,7 +852,7 @@
       <div class="stack"><div class="section-header">Needs attention${todo.length ? ' · ' + todo.length : ''}</div>
         <div class="card todos">${todo.join('') || '<p class="footnote" style="padding:8px 0">Nothing needs attention right now.</p>'}</div></div>
       <div class="stats">${stat(members.length, 'Members', 'not counting e-board')}${stat(past.length ? turnout : '–', 'Avg turnout', plural(past.length, 'past event'))}
-        ${stat(rs ? pct(sh, rs) : '–', 'RSVPs who came', rs ? `${sh} of ${rs}` : 'no RSVPs yet')}${stat(rating, 'Avg rating', rated.length ? 'anonymous' : 'needs 3+ per event')}</div>
+        ${stat(rs ? pct(sh, rs) : '–', 'RSVPs who came', rs ? `${sh} of ${rs}` : 'no RSVPs yet')}${stat(rating, 'Avg rating', rated.length ? 'names never shown' : 'needs 3+ per event')}</div>
       <div class="card stack recog">
         <div class="row"><strong class="spacer">Official recognition</strong><span class="footnote">${consented.length}/${RECOGNITION_GOAL} supporters</span></div>
         <div class="bar" role="progressbar" aria-valuenow="${consented.length}" aria-valuemin="0" aria-valuemax="${RECOGNITION_GOAL}"><span style="width:${goal}%"></span></div>
@@ -839,7 +909,7 @@
     const seg = (v, l) => `<button data-action="ev-scope" data-v="${v}" aria-pressed="${S.evScope === v}">${l}</button>`;
     return `${titleBar('Events')}<div class="stack-l">
       <div class="segmented" role="group" aria-label="Show">${seg('all', 'All events')}${seg('mine', 'My clubs')}${seg('going', 'Going')}</div>
-      ${days.map(([d, evs]) => `<div class="stack"><div class="section-header">${sameDay(d, now) ? 'Today' : esc(fmt.day(d))}</div>${evs.map(eventRow).join('')}</div>`).join('')
+      ${days.map(([d, evs]) => `<div class="stack"><div class="section-header">${sameDay(d, now) ? 'Today' : esc(fmt.day(d))}</div><div class="list">${evs.map(eventRow).join('')}</div></div>`).join('')
         || '<div class="empty"><h2>No events</h2><p>Join a club or RSVP to see events here.</p></div>'}</div>`;
   }
   function eventView(id) {
@@ -885,7 +955,7 @@
         <label class="field"><span>What should they keep? <span class="muted" style="font-weight:400">(optional)</span></span><textarea class="input short" id="fb-keep" maxlength="500">${esc(mine?.keep || '')}</textarea></label>
         <label class="field"><span>What should change? <span class="muted" style="font-weight:400">(optional)</span></span><textarea class="input short" id="fb-change" maxlength="500">${esc(mine?.change || '')}</textarea></label>
         <button class="btn secondary" data-action="feedback" data-event="${id}">Send feedback</button>
-        <p class="footnote">Officers never see who wrote what. Averages and comments only show once 3 people have responded.</p></div>`;
+        <p class="footnote">Officers see averages and comments, never names: your rating isn’t tied to you in anything they can access. They only appear once 3 people have responded.</p></div>`;
     }
     if (!runsEvent(e)) return;
     const s = await run(() => rpc('event_stats', { p_event: id }));
@@ -1028,7 +1098,7 @@
   function mineView() {
     const by = (f) => visibleClubs().filter((c) => membership(c.id) && f(membership(c.id)));
     const lead = by((m) => m.role === 'officer' && m.status === 'active'), mem = by((m) => m.role !== 'officer' && m.status === 'active'), pend = by((m) => m.status === 'pending');
-    const group = (t, l) => l.length ? `<div class="stack"><div class="section-header">${t}</div>${l.map(clubRow).join('')}</div>` : '';
+    const group = (t, l) => l.length ? `<div class="stack"><div class="section-header">${t}</div><div class="list">${l.map(clubRow).join('')}</div></div>` : '';
     return `${titleBar('My Clubs', '<a class="icon-btn" href="#/new-club" aria-label="Start a club">＋</a>')}
       <div class="stack-l">${lead.length + mem.length + pend.length ? group('Clubs you lead', lead) + group('Member', mem) + group('Waiting for approval', pend)
         + '<a class="btn secondary" href="#/new-club">Start a club</a>'
@@ -1120,6 +1190,16 @@
         ${toggle('discoverable', 'Show me in People', 'Students with the same interests can find you.', u.discoverable).replace('name="discoverable"', 'data-privacy="discoverable"')}
         ${toggle('leaderboard', 'Show me on club leaderboards', 'Members see who comes most. Officers always see attendance.', u.leaderboard).replace('name="leaderboard"', 'data-privacy="leaderboard"')}</div></div>
       ${blocked.length ? `<div class="stack"><div class="section-header">Blocked clubs</div><div class="card">${blocked.map((c) => `<div class="list-row"><span class="spacer">${esc(c.name)}</span><button class="link-btn" data-action="unblock" data-club="${c.id}">Unblock</button></div>`).join('')}</div></div>` : ''}
+      <div class="stack"><div class="section-header">Accounts on this device</div><div class="card" id="accounts">${loadAccounts().map((a) =>
+        `<div class="list-row">${avatar(a.name, 36)}<div class="spacer"><div style="font-weight:600">${esc(a.name)}</div><div class="footnote">${esc(a.email)}</div></div>
+         ${a.id === u.id ? '<span class="badge success">Signed in</span>' : `<button class="btn secondary small" data-action="switch-account" data-id="${a.id}">Switch</button>`}</div>`).join('')}
+        <div class="list-row"><button class="link-btn" data-action="add-account">＋ Add another account</button></div></div>
+        <p class="footnote">Handy if you’re both a member and an officer, or share a club phone. Each account stays signed in until you sign out of it.</p></div>
+      <div class="stack"><div class="section-header">Password</div><div class="card stack"><p style="font-size:15px">Optional. Lets you sign in without waiting for an email, including in the Home Screen app.</p>
+        <button class="btn secondary" data-action="set-password">Set a password</button></div></div>
+      <div class="stack"><div class="section-header">About</div><div class="card stack about">
+        <p><strong>Vnua-connect is student-run.</strong> It is not affiliated with or endorsed by ${esc(CFG.campus.name)}.</p>
+        <p class="footnote">Being listed or published here is not official university recognition. Clubs apply for that through ${esc(CFG.campus.name)}’s own process.</p></div></div>
       <div class="stack"><div class="section-header">Help</div><div class="card">
         <div class="list-row"><span class="spacer muted" style="font-size:15px">On iPhone: Share → Add to Home Screen to use it like an app</span></div>
         <div class="list-row"><a href="prototype/">Original design prototype</a></div></div></div>
@@ -1138,6 +1218,20 @@
       p_bio: u.bio, p_phone: u.phone, p_linkedin: u.linkedin, p_share_email: u.share_email, p_share_phone: u.share_phone,
       p_share_linkedin: u.share_linkedin, p_discoverable: u.discoverable, p_leaderboard: u.leaderboard });
     S.user = await loadProfile(S.user.id);
+  }
+  function passwordSheet() {
+    openSheet('Set a password', `<div class="stack-l">
+      <input type="email" name="username" autocomplete="username" value="${esc(S.user.email)}" hidden>
+      <label class="field"><span>New password</span><input class="input" name="pw" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="field"><span>Type it again</span><input class="input" name="pw2" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="footnote">At least 8 characters. You can still sign in with an email ${EMAIL_HAS_CODE ? 'code' : 'link'} anytime.</p></div>`,
+    { action: 'Save', onSubmit: async (fd) => {
+      const pw = fd.get('pw') || '';
+      if (pw.length < 8) { toast('Use at least 8 characters.', true); return false; }
+      if (pw !== fd.get('pw2')) { toast('The two passwords don’t match.', true); return false; }
+      const ok = await run(() => q(sb.auth.updateUser({ password: pw })).then(() => true));
+      if (ok) toast('Password set'); return !!ok;
+    } });
   }
   function editProfileSheet() {
     const u = S.user;
@@ -1477,7 +1571,7 @@
         el.parentElement.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < v));
         const rc = el.closest('.rate-card'); if (rc) rc.dataset.stars = v;
         const ok = await run(() => rpc('rate_event', { p_event: d.event, p_stars: v }).then(() => true));
-        if (ok) { toast('Thanks. Your rating is anonymous.'); await run(loadInbox); if (route().name === 'inbox') render(); }
+        if (ok) { toast('Thanks. Officers never see who rated.'); await run(loadInbox); if (route().name === 'inbox') render(); }
         break; }
       case 'nudge': {
         const users = d.users.split(',');
@@ -1549,7 +1643,12 @@
       case 'csv': { const e = event(d.id); download(`attendance-${fileSafe(e?.title)}.csv`, 'text/csv', csvFor(ci.records)); break; }
       case 'edit-profile': editProfileSheet(); break;
       case 'go-visible': if (await run(() => saveProfile({ discoverable: true }).then(() => true))) render(); break;
-      case 'signout': await sb.auth.signOut(); break;
+      case 'signout': { const id = S.user.id; forgetAccount(id); await sb.auth.signOut({ scope: 'local' }); break; }
+      case 'signin-mode': S.signin.mode = d.v; S.signin.sent = false; render(); break;
+      case 'add-account': S.adding = true; S.signin = blankSignin(); render(); break;
+      case 'cancel-add-account': S.adding = false; render(); break;
+      case 'switch-account': switchAccount(d.id); break;
+      case 'set-password': passwordSheet(); break;
       case 'delete-account': confirmSheet('Delete your account?', 'This removes your profile, memberships and RSVPs. It can’t be undone.', 'Delete account', async () => {
         await rpc('delete_account'); await sb.auth.signOut({ scope: 'local' }); return true; }); break;
     }
@@ -1591,6 +1690,7 @@
     const profile = await run(() => loadProfile(session.user.id));
     if (!profile) { S.booting = false; render(); return; }
     S.user = profile;
+    rememberAccount(session, profile.name);
     await run(loadAll); lastLoad = Date.now();
     if (!profile.onboarded_at) startOnboarding();
     S.booting = false; S.signin.show = false;
@@ -1605,9 +1705,12 @@
     if (!session && params.has('code') && !err) toast('That link was opened in a different browser. Enter the code from the email instead.', true);
     if (session) await signedIn(session); else { S.booting = false; render(); }
     sb.auth.onAuthStateChange((evt, s) => {
-      if (evt === 'SIGNED_IN' && s && !S.user) { S.booting = true; render(); signedIn(s); }
-      if (evt === 'SIGNED_OUT') { Object.assign(S, { user: null, clubs: [], events: [], memberships: {}, rsvps: new Set(), blocked: new Set(), notifs: [], invites: [], ob: null, nc: null });
-        S.signin = blankSignin(); location.hash = ''; render(); }
+      if (s && (evt === 'TOKEN_REFRESHED' || evt === 'SIGNED_IN') && loadAccounts().some((a) => a.id === s.user.id)) rememberAccount(s);
+      if (evt === 'SIGNED_IN' && s && (S.adding || !S.user)) {
+        if (S.adding && S.user?.id === s.user.id) { S.adding = false; render(); return; }
+        S.adding = false; resetState(); S.booting = true; render(); signedIn(s);
+      }
+      if (evt === 'SIGNED_OUT') { resetState(); S.adding = false; location.hash = ''; render(); }
     });
   }
   window.addEventListener('pageshow', (e) => { if (e.persisted && S.user) refresh(); });

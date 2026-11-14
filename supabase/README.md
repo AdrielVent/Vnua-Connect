@@ -12,7 +12,7 @@ All the rules live in the database (`migrations/`), so a modified app still can'
 - **Club logos:** public `club-logos` storage bucket; only a club's officers can write under `<club id>/`.
 - **Notifications (in-app inbox):** new events, cancellations, approvals, officer invites, announcements, "still interested?" nudges. Each member picks *Everything / Just what I RSVP to / Nothing* per club.
 - **Scheduled reminders:** `pg_cron` runs `send_due_notifications()` every 5 minutes. It sends each event's chosen reminders (2 weeks … 30 minutes before) and, 15 minutes after an event ends, asks everyone who checked in for a rating.
-- **Anonymous ratings:** `event_ratings` can't be read by any client. Officers get an average only once 3+ people rated.
+- **Ratings officers can't trace to a person:** `event_ratings` can't be read by any app user, and officers only get averages/comments once 3+ people rated. Rows do store the rater's id (one rating per person), so a database operator could identify a rater; the app never says "anonymous".
 - **Officer data:** `event_stats` (RSVPs, check-ins, how many RSVPs came, ratings) and `club_insights` (every member ranked by check-ins, officers flagged so they're left out of rankings and "top supporters", members who missed the last 3 events).
 - **Members:** `club_leaderboard` (members only, officers not ranked, opt-out in Profile) and `people_to_meet` (shared interests; you only see others while you're findable too).
 
@@ -34,7 +34,7 @@ supabase/tests/run_local.sh        # → ALL SECURITY / V2 / V3 TESTS PASSED
 ## Hosted project (done)
 - Project: `vnua-connect` (ref `mjxriwbyvfyndrwtqeeh`, us-east-1), linked to this repo.
 - Database password: macOS Keychain → "Supabase DB password (vnua-connect)".
-- Schema pushed with `supabase db push --remote`. Auth settings (6-digit codes, 10-minute expiry) pushed with `supabase config push --yes`.
+- Schema pushed with `supabase db push --remote`. Auth settings (OTP length 6, 10-minute expiry; users only receive a code once custom SMTP + the code template are set up) pushed with `supabase config push --yes`.
 - The app reads `VnuaConnect-iOS/VnuaConnect/Config/Supabase.plist` (git-ignored, anon key only).
 
 To push a new migration later:

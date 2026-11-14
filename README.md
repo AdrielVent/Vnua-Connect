@@ -1,8 +1,10 @@
 # Vnua-connect — Giving clubs a chance.
 
-A home for emerging, student-led interest clubs at Hofstra. Students sign in with a 6-digit code, set up a quick profile (major, year, up to 3 interests), and join or start a club. A club goes live once its president, VP, treasurer and secretary accept. Officers get check-in, automatic event reminders, anonymous ratings, member rankings, friendly "still interested?" check-ins, and the member list they need to apply for official recognition. No group chat: members only get the notifications they choose. Shared club and event links work before someone signs up, so a link in a group chat or on a poster turns into a join (or an offer to help build the club). Officers get a "Needs attention" list, follow-up tasks, and "Find a time" polls.
+A home for emerging, student-led interest clubs at Hofstra. Students sign in with a link emailed to their Hofstra address (or a password they set), set up a quick profile (major, year, up to 3 interests), and join or start a club. A club goes live once its president, VP, treasurer and secretary accept. Officers get check-in, automatic event reminders, 1–5 star ratings where officers only ever see averages (never who rated), member rankings, friendly "still interested?" check-ins, and the member list they need to apply for official recognition. No group chat: members only get the notifications they choose. Shared club and event links work before someone signs up, so a link in a group chat or on a poster turns into a join (or an offer to help build the club). Officers get a "Needs attention" list, follow-up tasks, and "Find a time" polls.
 
 Vnua-connect is student-run. It isn't affiliated with or endorsed by Hofstra University, and appearing on it doesn't mean university recognition.
+
+**Sign-in, honestly:** today the sign-in email contains a link (Supabase's built-in sender). A 6-digit code needs custom SMTP; once that's set up and a real code has arrived, set `signInEmail: 'code'` in `web/config.js`. Email links open in Safari, so inside an iPhone Home Screen install, sign in with a password (set one in Profile).
 
 ## Try it
 - **Web (Safari, any phone or computer):** https://adrielvent.github.io/Vnua-Connect/. Sign in with your Hofstra email. On iPhone, use Share → Add to Home Screen.
