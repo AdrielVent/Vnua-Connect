@@ -157,7 +157,7 @@
     const [, name = 'discover', id] = (location.hash || '#/discover').split('/');
     return { name, id };
   }
-  window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
+  window.addEventListener('hashchange', () => { inboxFresh = false; closeSheet(); render(); window.scrollTo(0, 0); });
 
   const triedFetch = new Set();       // ids we already refetched for, so a truly missing item shows "not found"
   const TABS = ['discover', 'events', 'mine', 'people', 'profile'];
@@ -900,10 +900,10 @@
         <button class="btn primary small" data-action="invite-answer" data-id="${i.id}" data-v="1">Accept</button></div></div>`).join('')}
       ${items.map(item).join('') || (inv.length ? '' : '<div class="empty"><h2>All caught up</h2><p>Reminders, announcements and invites from your clubs show up here. Nothing else.</p></div>')}</div>`;
   }
-  let inboxAt = 0;
+  let inboxFresh = false;                       // reset on every navigation, so opening the inbox always fetches
   after.inbox = () => {
-    if (Date.now() - inboxAt > 3000) {           // always show the latest when you open the inbox
-      inboxAt = Date.now();
+    if (!inboxFresh) {
+      inboxFresh = true;
       run(loadInbox).then(() => { if (route().name === 'inbox') render(); });
       return;
     }
